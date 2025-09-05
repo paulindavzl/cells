@@ -1,9 +1,11 @@
 // @ts-check
 
-import { OfflineGame } from "./offline_game.js";
+import { OfflineGame } from "../scenes/offline_game.js";
 import { DNAPoints } from "./dna_points.js";
 import { Bar, randomColor, randomItem, randomNumber } from "./utils.js";
-import { setEffect, AttributeUpgrade } from "./upgrade_deck_ui.js"
+import { setEffect, AttributeUpgrade } from "./upgrades.js";
+import { Messager } from "./messages.js";
+import { GameUI } from "../scenes/UI/game_ui.js";
 
 
 export class Cells {
@@ -12,9 +14,14 @@ export class Cells {
      * @param {OfflineGame} scene
      * @param {boolean} isPlayer
     */
-    constructor (scene, isPlayer=false) {
+    constructor (scene, specie, isPlayer=false) {
         this.scene = scene;
+        this.specie = specie;
         this.isPlayer = isPlayer;
+        this.scene.cells.push(this);
+        this.playerWatching = false;
+
+        if (!isPlayer) specie += `-${scene.cells.length}`;
 
         this.X = randomNumber(0, scene.mapWidth);
         this.Y = randomNumber(0, scene.mapHeight);
@@ -24,49 +31,83 @@ export class Cells {
         this.angle = null;
         this.angleVariation = 0;
         this.color = this.getUniqueColor()
+
+        this.lastRareCard = 0;
+        this.lastEpicCard = 0;
+
+        /** @type {null|Cells} */
+        this.lastContact = null;
+        /** @type {null|("defense"|"attack")} */
+        this.lastContactType = null;
+        this.successHunt = false;
         
         this.life = 20;
         this.maxLife = 20;
         this.defense = 20;
+        this.baseDefense = 20;
         this.damage = 8;
-        this.defaultDamage=8;
+        this.baseDamage = 8;
         this.speed = 200;
-        this.defaultSpeed = 200;
+        this.baseSpeed = 200;
         this.size = 10;
         this.kills = 0;
         this.points = 0;
         this.level = 1;
         this.nextLevel = randomNumber(100, 200);
+        this.reduceSpeedBy = 5;
 
         /** @type {null | {"target": Cells | DNAPoints, "type": "hunt" | "escape"}} */
         this.state = null;
 
         this.attackOn = true;
         this.fullDefenseOn = false;
-        this.attackCooldown = 500;
+        this.attackCooldown = 600;
         this.fullDefenseCooldown = 200;
 
         this.adrenalineSpeedBuff = 20;
         this.adrenalineDamageBuff = 10;
-        this.adrenalineTime = 0.5;
+        this.adrenalineTime = 1;
         this.adrenalineOn = false;
-        this.DNA_harvesting = 1;
+        this.DNAHarvesting = 1;
         this.lifeRecovery = 0;
+        this.reduceSpeed = true;
+
+        this.multiplierMaxValue = 1.3;
+        this.maxPerFiveLevel = {
+            maxLife: 40,
+            baseDefense: 40,
+            baseDamage: 18,
+            baseSpeed: 300,
+            attackCooldown: 400,
+            fullDefenseCooldown: 400,
+            adrenalineSpeedBuff: 40,
+            adrenalineDamageBuff: 20,
+            adrenalineTime: 1,
+            DNAHarvesting: 5,
+            lifeRecovery: 8,
+            multiplierMaxValue: 1.5,
+        };
 
         /** @type {Cells[]} */
         this.predators = [];
         /** @type {null|Cells} */
         this.hunting = null;
+        /** @type {null|Cells} */
+        this.lastHunt = null;
 
-        this.object = scene.add.circle(this.X, this.Y, this.size, this.color);
+        this.object = scene.add.circle(0, 0, this.size, this.color);
+        this.nameTextObject = scene.add.text(0, -30, this.specie, {
+            color: isPlayer ? "#2ddc27ff" : "#ff1d1dff",
+            align: "center"
+        }).setOrigin(0.5);
+        this.conteiner = scene.add.container(this.X, this.Y, [this.object, this.nameTextObject]);
 
         if (isPlayer) {
-            scene.cameras.main.startFollow(this.object);
-            this.initHUD();
+            scene.cameras.main.startFollow(this.conteiner);
         }
 
         this.startBackgroundEvents()
-        this.scene.cells.push(this);
+
     }
 
 
@@ -75,10 +116,7 @@ export class Cells {
      * @param {number} dt 
      */
     update (dt) {
-        this.lifeBar?.updateValue(this.life, this.maxLife);
-        this.pointsBar?.updateValue(this.points, this.nextLevel);
-
-        if (!this.isAlive()) return;     
+        if (!this.isAlive()) return;
 
         this.fighting(dt)
         this.updatePosition();
@@ -90,6 +128,8 @@ export class Cells {
             else this.findDNA(dt);
         }
         this.move(dt);
+
+
     }
 
 
@@ -172,26 +212,54 @@ export class Cells {
 
 
     updatePosition () {
-        this.object.x = this.X;
-        this.object.y = this.Y;
+        this.conteiner.x = this.X;
+        this.conteiner.y = this.Y;
         this.object.radius = this.size;
+    }
 
-        this.speedSecondUI?.setText(`${this.speedSecond} px/s`);
+
+    updateMaxValue () {
+        for (let key in this.maxPerFiveLevel) {
+            if (key !== "multiplierMaxValue") this.maxPerFiveLevel[key] *= this.multiplierMaxValue;
+        };
+    }
+
+
+    increasedLevel () {
+        const star = this.scene.add.image(0, -this.size, "level_up")
+            .setScale(0.05);
+        this.conteiner.add(star);
+
+        let repeat = 0;
+        this.scene.time.addEvent({
+            delay: 5,
+            callback: () => {
+                repeat ++
+                if (repeat <= 20) star.y -= 1;
+                if (repeat >= 30) star.destroy();
+            },
+            callbackScope: this.scene,
+            repeat: 30
+        })
     }
 
 
     updatePoints () {
         if (this.points >= this.nextLevel) {
+            this.increasedLevel();
+            this.lastRareCard += 1;
+            this.lastEpicCard += 1;
             this.points -= this.nextLevel;
             this.level ++;
-            this.defaultSpeed -= (this.defaultSpeed * 0.05); // -5% speed/level
-            this.size += (this.size * 0.1); // +10% size/level
+            if (this.reduceSpeed) this.baseSpeed -= (this.baseSpeed * (this.reduceSpeedBy / 100));
+            this.size += (this.size * 0.01);
             this.nextLevel = randomNumber(150, 300, false) * this.level;
-            this.pointsBar?.updateValue(this.points, this.nextLevel);
-            const attributesManager = new AttributeUpgrade(this.level);
+
+            if (this.level / 5 === 1 || this.level / 5 === 5) this.updateMaxValue();
+
+            const attributesManager = new AttributeUpgrade(this, this.lastRareCard > 5, this.lastEpicCard > 10);
             const cards = attributesManager.getCards();
             if (this.isPlayer) {
-                console.log(this.level);
                 this.scene.scene.pause();
                 this.scene.scene.launch("deck-ui", {
                     player: this,
@@ -203,17 +271,40 @@ export class Cells {
                 setEffect(this, card);
             }
         }
+
     }
 
 
-    isAlive () {
+    isAlive (onlyread=false) {
         if (Math.floor(this.life) <= 0) {
-            this.object.destroy();
-            this.speedSecondUI?.destroy()
-            for (let i = 0; i <= this.level * 50; i++) {
-                const x = randomNumber(this.X - 20, this.X + 20);
-                const y = randomNumber(this.Y - 20, this.Y + 20);
-                new DNAPoints(this.scene, 2, 1, x, y, false);
+            if (!onlyread) {
+                if (this.lastContact?.object.active) {
+                    this.lastContact.kills ++;
+                    if (this.isPlayer || this.playerWatching) {
+                        const follow = (this.lastContact.object.active) ? this.lastContact : this.scene.cells.find(cell => cell.object.active && cell.isAlive(true));
+                        const main = this.scene.cameras.main;
+                        if (follow) {
+                            main.stopFollow();
+                            main.startFollow(follow.conteiner);
+                            follow.playerWatching = true;
+
+                            // @ts-ignore
+                            this.scene.scene.get("game-ui").changeReference(follow);
+                        }
+                    };
+                }
+    
+                const reason = this.lastContactType === "attack" ? "attacking him" : "trying to escape";
+                const killed = `[b][u][color=red]${this.specie}[/color][/u][/b]`;
+                const killer = `[b][u][color=green]${this.lastContact?.specie}[/color][/u][/b]`
+                new Messager(`${killed} was killed by ${killer} while ${reason}`, this.scene, "yellow");
+    
+                this.conteiner.destroy();
+                for (let i = 0; i <= this.level * 50; i++) {
+                    const x = randomNumber(this.X - 20, this.X + 20);
+                    const y = randomNumber(this.Y - 20, this.Y + 20);
+                    new DNAPoints(this.scene, 2, 1, x, y, false);
+                }
             }
             return false;
         }
@@ -224,30 +315,38 @@ export class Cells {
     fighting (dt) {
         const cells = this.scene.cells;
         cells.forEach(cell => {
+            if (cell === this) return;
             const dx = this.X - cell.X;
             const dy = this.Y - cell.Y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance <= ((this.size + cell.size )/2)) {
                 let fighting = false;
-                const imStronger = (this.level > cell.level) || (this.level == cell.level && this.points > cell.points + (this.nextLevel / 2));
-                const imWeaker = (this.level < cell.level) || (this.level == cell.level && this.points < cell.points - (this.nextLevel / 2));
+                const imStronger = (this.level > cell.level) || (this.level == cell.level && this.points > cell.points + (cell.level * 50));
+                const imWeaker = (this.level < cell.level) || (this.level == cell.level && this.points < cell.points - (this.level * 50));
 
+                this.lastContact = cell;
+                cell.lastContact = this;
                 if (imStronger && (this.attackOn && !cell.fullDefenseOn)) {
                     cell.life -= (this.damage - (this.damage * (cell.defense / 100)));
                     this.life -= ((cell.damage * (1/2)) - (cell.damage * (this.defense / 100)));    
                     fighting = true;
-                    cell.adrenaline();         
+                    cell.adrenaline();
+                    this.lastContactType = "attack";       
+                    this.statusCooldown("attack");
+                    cell.lastContactType = "defense";
+                    if (cell === this.hunting) this.successHunt = true;
                 } else if (imWeaker && (!this.fullDefenseOn && cell.attackOn)) {
                     this.life -= (cell.damage - (cell.damage * (this.defense / 100)));
                     cell.life -= ((this.damage * (1/2)) - (this.damage * (cell.defense / 100)));
                     this.adrenaline();
                     fighting = true;
+                    this.lastContactType = "defense";
+                    this.statusCooldown("defense");
+                    cell.lastContactType = "attack";       
                 };
 
                 if (fighting) {
-                    this.statusCooldown()
-                    cell.statusCooldown()
 
                     const angle = Phaser.Math.Angle.Between(this.X, this.Y, cell.X, cell.Y);
                     const impact = 1200;
@@ -263,40 +362,48 @@ export class Cells {
     }
 
 
-    statusCooldown () {
+    statusCooldown (type) {
         this.attackOn = false;
         this.fullDefenseOn = true;
 
-        this.scene.time.addEvent({
-            delay: this.attackCooldown,
-            callback: () => {
-                this.attackOn = true;
-            },
-            callbackScope: this.scene,
-            loop: false
-        });
-        this.scene.time.addEvent({
-            delay: this.fullDefenseCooldown,
-            callback: () => {
-                this.fullDefenseOn = false;
-            },
-            callbackScope: this.scene,
-            loop: false
-        })
+        if (type === "attack") {
+            this.scene.time.addEvent({
+                delay: this.attackCooldown,
+                callback: () => {
+                    this.attackOn = true;
+                },
+                callbackScope: this.scene,
+                loop: false
+            });
+        }
+        else {
+            const circle = this.scene.add.image(0, 0, "defense_circle")
+                .setScale(0.9);
+            this.conteiner.add(circle);
+            this.scene.time.addEvent({
+                delay: this.fullDefenseCooldown,
+                callback: () => {
+                    this.fullDefenseOn = false;
+                    circle.destroy();
+                },
+                callbackScope: this.scene,
+                loop: false
+            });
+        }
     }
 
 
     adrenaline () {
         if (!this.adrenalineOn){
-            this.speed += (this.defaultSpeed * (this.adrenalineSpeedBuff/100));
-            this.damage += (this.defaultDamage * (this.adrenalineDamageBuff/100));
+            this.speed += (this.baseSpeed * (this.adrenalineSpeedBuff/100));
+            this.damage += (this.baseDamage * (this.adrenalineDamageBuff/100));
             this.adrenalineOn = true;
             
             this.scene.time.addEvent({
                 delay: this.adrenalineTime * 1000,
                 callback: () => {
-                    this.speed = this.defaultSpeed;
-                    this.damage = this.defaultDamage;
+                    this.speed = this.baseSpeed;
+                    this.damage = this.baseDamage;
                     this.adrenalineOn = false;
                 },
                 callbackScope: this.scene,
@@ -371,12 +478,12 @@ export class Cells {
     
             for (const cell of this.scene.cells) {
                 if (cell === this) continue;
-                if (!cell.object.active) continue;
+                if (!cell.conteiner.active) continue;
     
                 const dist = Phaser.Math.Distance.Between(this.X, this.Y, cell.X, cell.Y);
     
                 if (dist < minDist && dist < randomNumber(150, 200) && (
-                    cell.level > this.level  || ( cell.level == this.level && cell.points > this.points + (this.nextLevel / 2))
+                    cell.level > this.level  || ( cell.level == this.level && cell.points > this.points + (cell.level * 50))
                 )) {
                     threat = cell;
                     minDist = dist;
@@ -425,13 +532,13 @@ export class Cells {
     
             for (const cell of this.scene.cells) {
                 if (cell === this) continue;
-                if (!cell.object.active) continue;
+                if (!cell.conteiner.active) continue;
     
                 const dist = Phaser.Math.Distance.Between(this.X, this.Y, cell.X, cell.Y);
     
                 if (dist < minDist && dist < randomNumber(200, 250) && (
-                    cell.level < this.level  || ( cell.level == this.level && cell.points < this.points - (this.nextLevel / 2))
-                )) {
+                    cell.level < this.level  || ( cell.level == this.level && cell.points < this.points - (this.level * 50))
+                ) && cell !== this.lastHunt) {
                     prey = cell;
                     minDist = dist;
                 }
@@ -459,68 +566,78 @@ export class Cells {
     }
 
 
-    initHUD () {
-        const windows = this.scene.cameras.main;
-        this.lifeBar = new Bar(
-            this.scene, 
-            windows.width * 0.1,
-            windows.height * 0.1, 
-            this.life, 
-            this.maxLife, 
-            0x5b5b5b, 
-            true,
-            {
-                "r": 239,
-                "g": 50, 
-                "b": 50
-            },
-            {
-                "r": 50,
-                "g": 239,
-                "b": 91
-            }
-        ).setScrollFactor(0);
-        this.pointsBar = new Bar(
-            this.scene, 
-            windows.width * 0.1,
-            windows.height * 0.12,
-            this.points, 
-            this.nextLevel, 
-            0x5b5b5b, 
-            false,
-            {
-                "r": 48,
-                "g": 161, 
-                "b": 222
-            }
-        ).setScrollFactor(0);
-        this.speedSecondUI = this.scene.add.text(
-            windows.width * 0.1,
-            windows.height * 0.14,
-            `${this.speedSecond} px/s`
-        ).setScrollFactor(0);
-    }
-
-
     startBackgroundEvents () {
         const time = this.scene.time;
-        if (this.isPlayer) {
-            time.addEvent({
-                delay: 1000,
-                callback: () => {
+
+        // calcula a velocidada em px da célula
+        time.addEvent({
+            delay: 1000,
+            callback: () => {
+                if (this.isPlayer || this.playerWatching) {
+
                     let dx = this.X - this.lastX;
                     let dy = this.Y - this.lastY;
                     
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     this.lastX = this.X;
                     this.lastY = this.Y;
-    
+
                     this.speedSecond = Math.floor(distance);
-                },
-                callbackScope: this.scene,
-                loop: true
-            });
-        }
+                }
+            },
+            callbackScope: this.scene,
+            loop: true
+        });
+
+        // para de caçar a mesma célula depois de um tempo sem sucesso
+        let timeHuntControl = 0;
+        let tolerance = randomNumber(3000, 6000);
+        let lastDist = 0;
+        time.addEvent({
+            delay: 200,
+            callback: () => {
+                if (!this.hunting) {
+                    timeHuntControl = 0;
+                    this.successHunt = false;
+                    return;
+                }
+                
+                const dist = Phaser.Math.Distance.Between(this.X, this.Y, this.hunting.X, this.hunting.Y);
+                if (dist < lastDist - 10) {
+                    timeHuntControl = 0;
+                    this.successHunt = false;
+                } else if (this.successHunt) {
+                    timeHuntControl = 0;
+                    this.successHunt = false;
+                } else {
+                    timeHuntControl += 200;
+                }
+
+                lastDist = dist;
+
+                if (timeHuntControl >= tolerance) {
+                    if (timeHuntControl >= tolerance) {
+                        this.lastHunt = this.hunting;
+                        this.hunting.predators = this.hunting.predators.filter(c => c !== this);
+                        this.hunting = null;
+                        timeHuntControl = 0;
+                        tolerance = randomNumber(3000, 6000);
+
+                        this.scene.time.addEvent({
+                            delay: randomNumber(3000, 6000),
+                            callback: () => {
+                                this.lastHunt = null;
+                            },
+                            callbackScope: this.scene
+                        });
+                    }
+                }
+            },
+            callbackScope: this.scene,
+            loop: true
+        })
+
+        // recupera a vida e diminui os pontos
         time.addEvent({
             delay: 1000,
             callback: () => {
@@ -545,4 +662,4 @@ export class Cells {
         }
     }
 
-}
+} 

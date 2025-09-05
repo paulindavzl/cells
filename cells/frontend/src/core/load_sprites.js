@@ -1,4 +1,4 @@
-import { OfflineGame } from "./offline_game.js";
+import { OfflineGame } from "../scenes/offline_game.js";
 
 
 export const spritesPath = "/assets/sprites"

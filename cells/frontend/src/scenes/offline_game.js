@@ -1,26 +1,30 @@
 // @ts-check
 /// <reference path="../types/phaser.d.ts" />
 
-import { DNAPoints } from "./dna_points.js";
-import { keyMapper } from "./key_handler.js";
-import { loadAnims, loadImages } from "./load_sprites.js";
-import { Cells } from "./cells.js";
+import { DNAPoints } from "../core/dna_points.js";
+import { keyMapper } from "../core/key_handler.js";
+import { loadAnims, loadImages } from "../core/load_sprites.js";
+import { Cells } from "../core/cells.js";
 
 export class OfflineGame extends Phaser.Scene {
 
-
     constructor () {
         super("offline-scene")
+
         /** @type {DNAPoints[]} */
         this.DNAPoints = [];
+
         /** @type {DNAPoints[]} */
         this.DNADeadPoints = [];
+
         /** @type {Cells[]} */
         this.cells = [];
+
+        this.killMessages = 0
         
         this.keys = keyMapper(this);
 
-        this.botsNumberMax = 20;
+        this.botsNumberMax = 10;
         this.botsCreated = 0;
         this.mapWidth = 2000;
         this.mapHeight = 2000;
@@ -40,10 +44,20 @@ export class OfflineGame extends Phaser.Scene {
 
     preload () {
         loadImages(this, "dna_sprite");
+        this.load.image("level_up", "/assets/img/icons/star_icon.png");
+        this.load.image("defense_circle", "/assets/img/icons/defense_circle.png");
+        
+        this.load.plugin(
+            'rexbbcodetextplugin',
+            'https://cdn.jsdelivr.net/npm/phaser3-rex-plugins/dist/rexbbcodetextplugin.min.js',
+            true
+        );
+        
     }
     
 
     create () {
+        this.cameras.main.roundPixels = true;
         this.add.graphics()
             .lineStyle(4, 0xffffffff)
             .strokeRect(1, 1, this.mapWidth, this.mapHeight);
@@ -54,14 +68,16 @@ export class OfflineGame extends Phaser.Scene {
             new DNAPoints(this);
         }
 
-        for (let i = 0; i < this.botsNumberMax; i ++) {
-            new Cells(this);
+        this.player = new Cells(this, "Astuto", true);
+
+        while (this.cells.length < this.botsNumberMax) {
+            new Cells(this, `Alpha-${this.cells.length}`);
         }
 
-        const windows = this.cameras.main;
-        this.player = new Cells(this, true);
-        this.alivesText = this.add.text(windows.width * 0.5, windows.height * 0.1, `alives: ${this.cells.length}`)
-        .setScrollFactor(0);
+        this.scene.launch("game-ui", {
+            scene: this,
+            cell: this.player
+        });
     }
 
 
@@ -78,7 +94,6 @@ export class OfflineGame extends Phaser.Scene {
     
     
     updateLogic (dt) {
-        if (!this.alivesText) return;
         this.DNAPoints.forEach(dna => {
             if (dna.X < 1 || dna.X > this.mapWidth || dna.Y < 1 || dna.Y > this.mapHeight) {
                 dna.object.destroy();
@@ -96,7 +111,7 @@ export class OfflineGame extends Phaser.Scene {
 
         this.cells.forEach((cell) => {
             if (cell.X < 1 || cell.X > this.mapWidth || cell.Y < 1 || cell.Y > this.mapHeight) {
-                cell.object.destroy();
+                cell.conteiner.destroy();
                 return;
             }
             cell.update(dt);
@@ -105,7 +120,6 @@ export class OfflineGame extends Phaser.Scene {
         this.DNAPoints = this.DNAPoints.filter(dna => dna.object.active);
         this.DNADeadPoints = this.DNADeadPoints.filter(dna => dna.object.active);
         this.cells = this.cells.filter(cell => cell.object.active);
-        this.alivesText.text = `alives: ${this.cells.length}`;
     }
 
 };

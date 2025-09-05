@@ -1,6 +1,6 @@
 // @ts-check
 
-import { OfflineGame } from "./offline_game.js";
+import { OfflineGame } from "../scenes/offline_game.js";
 import { randomNumber } from "./utils.js";
 
 
@@ -32,15 +32,15 @@ export class DNAPoints {
     
     update () {
         this.scene.cells.forEach(cell => {
-            const dx = this.object.x - cell.object.x;
-            const dy = this.object.y - cell.object.y;
+            const dx = this.X - cell.X;
+            const dy = this.Y - cell.Y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance <= (10 + cell.size - 1)) {
-                cell.points += ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNA_harvesting);
+                cell.points += ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNAHarvesting);
                 
                 if (cell.life < cell.maxLife) {
-                    let life = cell.life + (this.points * 0.1) * cell.DNA_harvesting;
+                    let life = cell.life + (this.points * 0.1) * cell.DNAHarvesting;
                     if (life > cell.maxLife) life = cell.maxLife;
                     cell.life = Math.floor(life);
                 }

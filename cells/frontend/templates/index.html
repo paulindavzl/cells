@@ -4,10 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/assets/img/favicon.png" type="image/x-icon">
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.0/dist/phaser.min.js"></script>
+
     <title>Cells</title>
 </head>
 <body>
+    <script>
+        const loadFont = (fontname, url) => {
+            const font = new FontFace(fontname, `url(${url})`);
+            font.load().then(f => document.fonts.add(f));
+        }
+
+        const fontPath = "/assets/fonts/";
+        loadFont("hanalei_fill", fontPath + "hanalei_fill.ttf");
+        loadFont("quicksand_font", fontPath + "quicksand_variablefont.ttf");
+    </script>
     <script src="/js/main.js" type="module"></script>
 </body>
 </html>

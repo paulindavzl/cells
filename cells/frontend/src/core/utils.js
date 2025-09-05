@@ -2,7 +2,8 @@
 /// <reference path="../types/types.ts" />
 
 
-import { OfflineGame } from "./offline_game.js";
+import { OfflineGame } from "../scenes/offline_game.js";
+import { Cells } from "./cells.js";
 
 
 /**
@@ -125,3 +126,48 @@ export const randomItem = (iterable) => {
     return item;
 }
 
+
+/** 
+ * @param {UpdateAttributeType} info 
+ * @param {Cells} cell
+ * @param {boolean} set
+ * @param {boolean} debuff
+ * @returns {string}
+*/
+export const parseValue = (info, cell, set=false, debuff=false) => {
+    const attribute = info.attribute;
+    const update = info.update;
+
+    let type = info.type;
+    if (typeof type !== "string") type = type[0];
+
+    // @ts-ignore
+    if (typeof info[type] === "object") info[type] = info[type][0];
+
+    let baseValue = cell[attribute];
+    let change = 0;
+
+    if (type === "absolute") {
+        change = info.absolute ?? 0;
+    }
+    else if (type === "boolean") {
+        if (set) cell[attribute] = info.boolean;
+        return `set to ${info.boolean}`
+    }
+    else if (type === "percent") {
+        const percent = info.percent ?? 0;
+        change = baseValue * (percent/100);
+    }
+
+    if (!cell.reduceSpeed) change -= change * 0.05;
+
+    const newValue = baseValue + change;
+
+    if (set) {
+        cell[attribute] = newValue;
+        if (update) cell[update] += change;
+    }
+
+    const diffText = (change >= 0 && !debuff ? "+" : "") + change.toFixed(2);
+    return `${baseValue.toFixed(2)} > ${newValue.toFixed(2)} (${diffText})`;
+}

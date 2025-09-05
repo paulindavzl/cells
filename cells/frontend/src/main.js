@@ -1,14 +1,15 @@
 // @ts-check
 
-import { OfflineGame } from "./core/offline_game.js";
-import { DeckUI } from "./core/upgrade_deck_ui.js";
+import { OfflineGame } from "./scenes/offline_game.js";
+import { DeckUI } from "./scenes/UI/upgrade_deck.js";
+import { GameUI } from "./scenes/UI/game_ui.js";
 
 
 /** @type {Phaser.Types.Core.GameConfig} */
 const gameConfig = {
     width: window.innerWidth,
     height: window.innerHeight,
-    scene: [OfflineGame, DeckUI],
+    scene: [OfflineGame, DeckUI, GameUI],
     physics: {
         default: "arcade"
     },
