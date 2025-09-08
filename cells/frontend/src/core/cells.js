@@ -5,7 +5,6 @@ import { DNAPoints } from "./dna_points.js";
 import { Bar, randomColor, randomItem, randomNumber } from "./utils.js";
 import { setEffect, AttributeUpgrade } from "./upgrades.js";
 import { Messager } from "./messages.js";
-import { GameUI } from "../scenes/UI/game_ui.js";
 
 
 export class Cells {
@@ -32,6 +31,7 @@ export class Cells {
         this.angleVariation = 0;
         this.color = this.getUniqueColor()
 
+        // controla o ganho de cartas raras/épicas
         this.lastRareCard = 0;
         this.lastEpicCard = 0;
 
@@ -52,26 +52,38 @@ export class Cells {
         this.size = 10;
         this.kills = 0;
         this.points = 0;
+        this.allPoints = 0;
         this.level = 1;
         this.nextLevel = randomNumber(100, 200);
         this.reduceSpeedBy = 5;
+        this.stamina = 100;
+        this.maxStamina = 100;
 
         /** @type {null | {"target": Cells | DNAPoints, "type": "hunt" | "escape"}} */
         this.state = null;
 
+        // consumo de estâmina para ações
+        this.consumptionForRunning = 2;
+
+        // controla o tempo em que pode atacar ou ser atacado
         this.attackOn = true;
         this.fullDefenseOn = false;
         this.attackCooldown = 600;
         this.fullDefenseCooldown = 200;
+        this.running = false;
 
+        // buffs
         this.adrenalineSpeedBuff = 20;
         this.adrenalineDamageBuff = 10;
         this.adrenalineTime = 1;
         this.adrenalineOn = false;
         this.DNAHarvesting = 1;
         this.lifeRecovery = 0;
+        this.staminaRecovery = 1;
         this.reduceSpeed = true;
+        this.runBuff = 100;
 
+        // máximo de cada atributo cada 5 níveis
         this.multiplierMaxValue = 1.3;
         this.maxPerFiveLevel = {
             maxLife: 40,
@@ -86,6 +98,7 @@ export class Cells {
             DNAHarvesting: 5,
             lifeRecovery: 8,
             multiplierMaxValue: 1.5,
+            runBuff: 200
         };
 
         /** @type {Cells[]} */
@@ -94,13 +107,30 @@ export class Cells {
         this.hunting = null;
         /** @type {null|Cells} */
         this.lastHunt = null;
+        /** @type {null|Cells} */
+        this.lastPrey = null;
 
         this.object = scene.add.circle(0, 0, this.size, this.color);
-        this.nameTextObject = scene.add.text(0, -30, this.specie, {
+        this.nameTextObject = scene.add.text(0, this.size -55, this.specie, {
             color: isPlayer ? "#2ddc27ff" : "#ff1d1dff",
             align: "center"
         }).setOrigin(0.5);
-        this.conteiner = scene.add.container(this.X, this.Y, [this.object, this.nameTextObject]);
+
+        this.allPointsTextObject = scene.add.text(0, this.size -40, `(${this.allPoints})`,
+            {
+                color: isPlayer ? "#2ddc27ff" : "#ff1d1dff",
+                align: "center",
+                fontSize: 12
+            }
+        ).setOrigin(0.5);
+
+        this.alertObject = scene.add.image(0, this.size -75, "alert_icon").setScale(0.04);
+        this.alertObject.visible = false;
+        
+        this.targetObject = scene.add.image(0, this.size -75, "target_icon").setScale(0.06);
+        this.targetObject.visible = false;
+
+        this.conteiner = scene.add.container(this.X, this.Y, [this.object, this.nameTextObject, this.allPointsTextObject, this.alertObject, this.targetObject]);
 
         if (isPlayer) {
             scene.cameras.main.startFollow(this.conteiner);
@@ -108,6 +138,9 @@ export class Cells {
 
         this.startBackgroundEvents()
 
+        this.chooseCard();
+
+        this.statusCooldown("defense");
     }
 
 
@@ -122,14 +155,60 @@ export class Cells {
         this.updatePosition();
         this.updatePoints();
         
+        let prey = this.minDistWeaker();
+
         if (!this.isPlayer) {
-            if (this.escape(dt)) "";
-            else if (this.hunt(dt)) "";
-            else this.findDNA(dt);
+            if (this.escape()) "";
+            else if (this.hunt(prey)) "";
+            else this.findDNA();
+        }
+        if (this.isPlayer || this.playerWatching) {
+            if (!this.lastPrey) this.lastPrey = prey;
+            else if (this.lastPrey !== prey) this.lastPrey.targetObject.visible = false;
+
+            if (prey) prey.targetObject.visible = true;
+            this.lastPrey = prey;
         }
         this.move(dt);
 
+        const gameUI = this.scene.scene.get("game-ui");
+        // @ts-ignore
+        if (this.isPlayer && gameUI.runText.active && this.scene.getKeys()?.SPACE.isDown) gameUI.runText.destroy();
 
+        this.allPointsTextObject.text = `(${Math.floor(this.allPoints)})`;
+    }
+
+
+    run (key) {
+        if (
+            this.running || 
+            this.stamina < (this.maxStamina * 0.3) ||
+            (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells)))
+        ) return;
+
+        const buff = this.runBuff;
+        this.speed += buff;
+        this.running = true;
+
+        const runEvent = this.scene.time.addEvent({
+            delay: 20,
+            callback: () => {
+                if (
+                    // @ts-ignore
+                    (this.isPlayer && !key.isDown) || 
+                    this.stamina < this.consumptionForRunning || 
+                    (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells)))
+                ) {
+                    this.speed -= buff;
+                    runEvent.destroy();
+                    this.running = false;
+                } else {
+                    this.stamina -= this.consumptionForRunning;
+                }
+            },
+            callbackScope: this.scene,
+            loop: true
+        });
     }
 
 
@@ -140,17 +219,23 @@ export class Cells {
     move (dt) {
         let dx = 0;
         let dy = 0;
+        const keys =  this.scene.getKeys();
         if (this.isPlayer) {
-            const keys =  this.scene.getKeys();
             if (!keys) return;
 
+            if (keys.SPACE.isDown) this.run(keys.SPACE);
             if (keys.w.isDown) dy -= 1;
             if (keys.s.isDown) dy += 1;
             if (keys.a.isDown) dx -= 1;
             if (keys.d.isDown) dx += 1;
 
         } else {
-            let angle = this.angle
+            if (
+                this.stamina >= (this.maxStamina * randomNumber(0.3, 0.5, false)) &&
+                (this.state?.type !== "hunt" || this.life >= (this.maxLife * 0.5))
+            ) this.run(keys?.SPACE);
+
+            let angle = this.angle;
             if (this.state && this.state.type === "escape") {
                 this.setAngleVariation();
                 angle += this.angleVariation;
@@ -173,8 +258,10 @@ export class Cells {
             dy /= length;
         }
 
-        this.X = Phaser.Math.Clamp(this.X + dx * this.speed * dt, 10, this.scene.mapWidth - 10);
-        this.Y = Phaser.Math.Clamp(this.Y + dy * this.speed * dt, 10, this.scene.mapHeight - 10);
+        const speed = this.getSpeed();
+
+        this.X = Phaser.Math.Clamp(this.X + dx * speed * dt, 10, this.scene.mapWidth - 10);
+        this.Y = Phaser.Math.Clamp(this.Y + dy * speed * dt, 10, this.scene.mapHeight - 10);
     }
 
 
@@ -244,6 +331,23 @@ export class Cells {
     }
 
 
+    chooseCard () {
+        const attributesManager = new AttributeUpgrade(this, this.lastRareCard > 5, this.lastEpicCard > 10);
+        const cards = attributesManager.getCards();
+        if (this.isPlayer) {
+            this.scene.scene.pause();
+            this.scene.scene.launch("deck-ui", {
+                player: this,
+                mode: "offline",
+                cards: cards
+            })
+        } else {
+            const card = randomItem(cards);
+            setEffect(this, card);
+        }
+    }
+
+
     updatePoints () {
         if (this.points >= this.nextLevel) {
             this.increasedLevel();
@@ -252,24 +356,12 @@ export class Cells {
             this.points -= this.nextLevel;
             this.level ++;
             if (this.reduceSpeed) this.baseSpeed -= (this.baseSpeed * (this.reduceSpeedBy / 100));
-            this.size += (this.size * 0.01);
+            this.size += (this.size * 0.05);
             this.nextLevel = randomNumber(150, 300, false) * this.level;
 
             if (this.level / 5 === 1 || this.level / 5 === 5) this.updateMaxValue();
 
-            const attributesManager = new AttributeUpgrade(this, this.lastRareCard > 5, this.lastEpicCard > 10);
-            const cards = attributesManager.getCards();
-            if (this.isPlayer) {
-                this.scene.scene.pause();
-                this.scene.scene.launch("deck-ui", {
-                    player: this,
-                    mode: "offline",
-                    cards: cards
-                })
-            } else {
-                const card = randomItem(cards);
-                setEffect(this, card);
-            }
+            this.chooseCard();
         }
 
     }
@@ -287,24 +379,25 @@ export class Cells {
                             main.stopFollow();
                             main.startFollow(follow.conteiner);
                             follow.playerWatching = true;
-
+                            follow.nameTextObject.setColor("#2ddc27ff");
+                            follow.allPointsTextObject.setColor("#2ddc27ff");
                             // @ts-ignore
-                            this.scene.scene.get("game-ui").changeReference(follow);
+                            this.scene.scene.get("game-ui").changeReference(follow, this.isPlayer ? follow.specie : null);
                         }
                     };
                 }
-    
-                const reason = this.lastContactType === "attack" ? "attacking him" : "trying to escape";
-                const killed = `[b][u][color=red]${this.specie}[/color][/u][/b]`;
-                const killer = `[b][u][color=green]${this.lastContact?.specie}[/color][/u][/b]`
-                new Messager(`${killed} was killed by ${killer} while ${reason}`, this.scene, "yellow");
-    
+                
                 this.conteiner.destroy();
                 for (let i = 0; i <= this.level * 50; i++) {
                     const x = randomNumber(this.X - 20, this.X + 20);
                     const y = randomNumber(this.Y - 20, this.Y + 20);
                     new DNAPoints(this.scene, 2, 1, x, y, false);
                 }
+
+                const reason = this.lastContactType === "attack" ? "attacking him" : "trying to escape";
+                const killed = `[b][u][color=red]${this.specie}[/color][/u][/b]`;
+                const killer = `[b][u][color=green]${this.lastContact?.specie}[/color][/u][/b]`
+                new Messager(`${killed} was killed by ${killer} while ${reason}`, this.scene, "yellow");
             }
             return false;
         }
@@ -312,7 +405,62 @@ export class Cells {
     }
 
 
+    getSpeed () {
+        let speed = this.speed;
+
+        if (this.stamina < this.maxStamina * 0.1) speed -= speed * 0.2;
+
+        return speed;
+    }
+
+
+    getDamage () {
+        let damage = this.damage;
+        if (this.stamina < this.maxStamina * 0.2) damage -= damage * 0.2;
+        else if (this.stamina < this.maxStamina * 0.4) damage -= damage * 0.1;
+
+        return damage;
+    }
+
+
+    getDefense () {
+        let defense = this.defense;
+
+        if (this.stamina < this.maxStamina * 0.3) defense -= defense * 0.3;
+        else if (this.stamina < this.maxStamina * 0.4) defense -= defense * 0.25;
+        else if (this.stamina < this.maxStamina * 0.6) defense -= defense * 0.1;
+
+        return defense;
+    }
+
+
     fighting (dt) {
+        let fighting = false;
+
+        /**
+         * 
+         * @param {Cells} stronger 
+         * @param {Cells} weaker 
+         */
+        const initFight = (stronger, weaker, full=true) => {
+            const strongerDamage = stronger.getDamage();
+            const strongerDefense = stronger.getDefense();
+            const weakerDamage = weaker.getDamage();
+            const weakerDefense = weaker.getDefense();
+
+            weaker.life -= Phaser.Math.Clamp((strongerDamage * (full ? 1 : 1/3) - (strongerDamage * (weakerDefense / 100))), stronger.level, weaker.maxLife);
+            stronger.life -= Phaser.Math.Clamp(((weakerDamage * (full ? 1/2 : 1/3)) - (weakerDamage * (strongerDefense / 100))), weaker.level, stronger.maxLife);    
+            fighting = true;
+            weaker.adrenaline();
+            stronger.lastContactType = full ? "attack" : "defense";       
+            stronger.statusCooldown(full ? "attack" : "defense");
+            weaker.statusCooldown(!full ? "attack" : "defense");
+            weaker.lastContactType = !full ? "attack" : "defense";
+            if (weaker === stronger.hunting) stronger.successHunt = true;
+
+            stronger.lastContact = weaker;
+            weaker.lastContact = stronger;
+        }
         const cells = this.scene.cells;
         cells.forEach(cell => {
             if (cell === this) return;
@@ -320,31 +468,10 @@ export class Cells {
             const dy = this.Y - cell.Y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance <= ((this.size + cell.size )/2)) {
-                let fighting = false;
-                const imStronger = (this.level > cell.level) || (this.level == cell.level && this.points > cell.points + (cell.level * 50));
-                const imWeaker = (this.level < cell.level) || (this.level == cell.level && this.points < cell.points - (this.level * 50));
-
-                this.lastContact = cell;
-                cell.lastContact = this;
-                if (imStronger && (this.attackOn && !cell.fullDefenseOn)) {
-                    cell.life -= (this.damage - (this.damage * (cell.defense / 100)));
-                    this.life -= ((cell.damage * (1/2)) - (cell.damage * (this.defense / 100)));    
-                    fighting = true;
-                    cell.adrenaline();
-                    this.lastContactType = "attack";       
-                    this.statusCooldown("attack");
-                    cell.lastContactType = "defense";
-                    if (cell === this.hunting) this.successHunt = true;
-                } else if (imWeaker && (!this.fullDefenseOn && cell.attackOn)) {
-                    this.life -= (cell.damage - (cell.damage * (this.defense / 100)));
-                    cell.life -= ((this.damage * (1/2)) - (this.damage * (cell.defense / 100)));
-                    this.adrenaline();
-                    fighting = true;
-                    this.lastContactType = "defense";
-                    this.statusCooldown("defense");
-                    cell.lastContactType = "attack";       
-                };
+            if (distance <= ((this.object.width + cell.object.width )/2) - 5) {
+                if (cell.hunting === this && cell.attackOn && !this.fullDefenseOn) initFight(cell, this);
+                else if ((this.hunting === cell || this.isPlayer) && this.attackOn && !cell.fullDefenseOn) initFight(this, cell);
+                else initFight(this, cell, false);
 
                 if (fighting) {
 
@@ -414,10 +541,9 @@ export class Cells {
 
 
     /**
-     * @param {number} dt 
      * @returns {boolean} 
     */
-    findDNA (dt) {
+    findDNA () {
         if (this.isPlayer) return false;
 
         let nearest = null;
@@ -458,10 +584,9 @@ export class Cells {
 
 
     /**
-     * @param {number} dt 
      * @returns {boolean} 
     */
-    escape (dt) {
+    escape () {
         if (this.isPlayer) return false;
 
         /** @type {null | Cells} */
@@ -511,39 +636,18 @@ export class Cells {
 
 
     /**
-     * @param {number} dt 
+     * @param {Cells|null} prey 
      * @returns {boolean} 
     */
-    hunt (dt) {
+    hunt (prey) {
         if (this.isPlayer) return false;
         if (this.life <= this.maxLife * 0.5) return false;
-
-        /** @type {null | Cells} */
-        let prey = null;
+        if (this.stamina < this.maxStamina * 0.1) return false;
 
         if (this.state) {
             if (!this.state.target.object.active) this.state = null;
             if (this.state?.type !== "hunt" || this.state.target instanceof DNAPoints) return false;
             else prey = this.state.target;
-        }
-
-        if (!prey) {
-            let minDist = Infinity;
-    
-            for (const cell of this.scene.cells) {
-                if (cell === this) continue;
-                if (!cell.conteiner.active) continue;
-    
-                const dist = Phaser.Math.Distance.Between(this.X, this.Y, cell.X, cell.Y);
-    
-                if (dist < minDist && dist < randomNumber(200, 250) && (
-                    cell.level < this.level  || ( cell.level == this.level && cell.points < this.points - (this.level * 50))
-                ) && cell !== this.lastHunt) {
-                    prey = cell;
-                    minDist = dist;
-                }
-            }
-            if (prey) this.setState(prey, "hunt");
         }
 
         if (prey) {
@@ -563,6 +667,27 @@ export class Cells {
             return true;
         }
         return false;
+    }
+
+
+    minDistWeaker () {
+        let minDist = Infinity;
+        let prey = null;
+        for (const cell of this.scene.cells) {
+            if (cell === this) continue;
+            if (!cell.conteiner.active) continue;
+
+            const dist = Phaser.Math.Distance.Between(this.X, this.Y, cell.X, cell.Y);
+
+            if (dist < minDist && dist < randomNumber(300, 500) && (
+                cell.level < this.level  || ( cell.level == this.level && cell.points < this.points - (this.level * 50))
+            ) && cell !== this.lastHunt) {
+                prey = cell;
+                minDist = dist;
+            }
+        }
+
+        return prey;
     }
 
 
@@ -603,7 +728,7 @@ export class Cells {
                 }
                 
                 const dist = Phaser.Math.Distance.Between(this.X, this.Y, this.hunting.X, this.hunting.Y);
-                if (dist < lastDist - 10) {
+                if (dist < lastDist - 5) {
                     timeHuntControl = 0;
                     this.successHunt = false;
                 } else if (this.successHunt) {
@@ -616,36 +741,58 @@ export class Cells {
                 lastDist = dist;
 
                 if (timeHuntControl >= tolerance) {
-                    if (timeHuntControl >= tolerance) {
-                        this.lastHunt = this.hunting;
-                        this.hunting.predators = this.hunting.predators.filter(c => c !== this);
-                        this.hunting = null;
-                        timeHuntControl = 0;
-                        tolerance = randomNumber(3000, 6000);
+                    this.lastHunt = this.hunting;
+                    this.hunting.predators = this.hunting.predators.filter(c => c !== this);
+                    this.hunting = null;
+                    timeHuntControl = 0;
+                    tolerance = randomNumber(3000, 6000);
 
-                        this.scene.time.addEvent({
-                            delay: randomNumber(3000, 6000),
-                            callback: () => {
-                                this.lastHunt = null;
-                            },
-                            callbackScope: this.scene
-                        });
-                    }
+                    this.scene.time.addEvent({
+                        delay: randomNumber(3000, 6000),
+                        callback: () => {
+                            this.lastHunt = null;
+                        },
+                        callbackScope: this.scene
+                    });
                 }
             },
             callbackScope: this.scene,
             loop: true
         })
 
-        // recupera a vida e diminui os pontos
+        // recupera a vida. recupera estâmina e diminui os pontos
         time.addEvent({
             delay: 1000,
             callback: () => {
                 if (this.life < this.maxLife) {
-                    this.life += this.lifeRecovery;
+                    // recupera vida normalmente caso stamina > 60% máx.
+                    if (this.stamina >= this.maxStamina * 0.6) {
+                        this.life += this.lifeRecovery;
+                        this.stamina -= this.lifeRecovery;
+                    
+                    // recupera a vida em metade da recuperação normal caso stamina > 20% máx.
+                    } else if (this.stamina >= 0.2) {
+                        this.life += this.lifeRecovery / 2;
+                        this.stamina -= this.lifeRecovery; // consome a quantida de stamina normal para recuperar a vida
+                    }
                 }
 
-                if (this.points > 0) this.points -= 0.5;
+                const pointsReduction = 0.5 * (this.level / 2);
+                if (this.points > 0) this.points -= pointsReduction;
+                if (this.allPoints > 0) this.allPoints -= pointsReduction;
+
+                if (this.stamina < this.maxStamina && !this.running) this.stamina += this.staminaRecovery;
+            },
+            callbackScope: this.scene,
+            loop: true
+        })
+
+        // adiciona um sinal de alerta nas células que estão te caçando
+        time.addEvent({
+            delay: 50,
+            callback: () => {
+                if (this.hunting && (this.hunting.isPlayer || this.hunting.playerWatching)) this.alertObject.visible = true;
+                else this.alertObject.visible = false;
             },
             callbackScope: this.scene,
             loop: true

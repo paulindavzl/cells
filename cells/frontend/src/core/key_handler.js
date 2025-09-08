@@ -15,7 +15,8 @@ export const keyMapper = (scene) => {
         "d": keyboard.addKey(keyCodes.D),
         "ONE": keyboard.addKey(keyCodes.ONE),
         "TWO": keyboard.addKey(keyCodes.TWO),
-        "THREE": keyboard.addKey(keyCodes.THREE)
+        "THREE": keyboard.addKey(keyCodes.THREE),
+        "SPACE": keyboard.addKey(keyCodes.SPACE)
     };
     return keys;
 }

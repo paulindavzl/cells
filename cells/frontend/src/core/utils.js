@@ -69,10 +69,10 @@ export class Bar {
         this.object.clear();
         
         this.object.lineStyle(2, 0x000000);
-        this.object.strokeRect(this.X, this.Y, this.width, this.height);
+        this.object.strokeRoundedRect(this.X, this.Y, this.width, this.height, 3);
 
         this.object.fillStyle(this.backgroundColor, 0.3);
-        this.object.fillRect(this.X, this.Y, this.width, this.height);
+        this.object.fillRoundedRect(this.X, this.Y, this.width, this.height, 3);
 
         const valuePercent = this.displayValue / this.maxValue;
 
@@ -91,8 +91,11 @@ export class Bar {
             hexColor = Phaser.Display.Color.GetColor(this.color1.r, this.color1.g, this.color1.b);
         }
 
-        this.object.fillStyle(hexColor);
-        this.object.fillRect(this.X, this.Y, this.width * valuePercent, this.height);
+        if (this.currentValue > this.maxValue * 0.01) {
+
+            this.object.fillStyle(hexColor);
+            this.object.fillRoundedRect(this.X, this.Y, this.width * valuePercent, this.height, 3);
+        }
     }
 
 
@@ -170,4 +173,17 @@ export const parseValue = (info, cell, set=false, debuff=false) => {
 
     const diffText = (change >= 0 && !debuff ? "+" : "") + change.toFixed(2);
     return `${baseValue.toFixed(2)} > ${newValue.toFixed(2)} (${diffText})`;
+}
+
+
+export const rexTag = () => {
+    const tags = {
+        white: {color: "#f0f0f0ff"},
+        red: {color: "#d62828ff"},
+        green: {color:"#14be5bff"},
+        yellow: {color: "#d4e306ff"},
+        lightgreen: {color: "#31f500ff"}
+    };
+    
+    return tags;
 }

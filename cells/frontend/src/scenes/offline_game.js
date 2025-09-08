@@ -5,6 +5,7 @@ import { DNAPoints } from "../core/dna_points.js";
 import { keyMapper } from "../core/key_handler.js";
 import { loadAnims, loadImages } from "../core/load_sprites.js";
 import { Cells } from "../core/cells.js";
+import { Messager } from "../core/messages.js";
 
 export class OfflineGame extends Phaser.Scene {
 
@@ -24,9 +25,10 @@ export class OfflineGame extends Phaser.Scene {
         
         this.keys = keyMapper(this);
 
-        this.botsNumberMax = 10;
+        this.botsNumberMax = 20;
         this.botsCreated = 0;
         this.mapWidth = 2000;
+        
         this.mapHeight = 2000;
         this.maxDNAPoints = 1000;
         
@@ -44,8 +46,12 @@ export class OfflineGame extends Phaser.Scene {
 
     preload () {
         loadImages(this, "dna_sprite");
-        this.load.image("level_up", "/assets/img/icons/star_icon.png");
-        this.load.image("defense_circle", "/assets/img/icons/defense_circle.png");
+
+        const icons = "/assets/img/icons";
+        this.load.image("level_up", `${icons}/star_icon.png`);
+        this.load.image("defense_circle", `${icons}/defense_circle.png`);
+        this.load.image("alert_icon", `${icons}/alert_icon.png`);
+        this.load.image("target_icon", `${icons}/target_icon.png`);
         
         this.load.plugin(
             'rexbbcodetextplugin',
@@ -74,7 +80,7 @@ export class OfflineGame extends Phaser.Scene {
             new Cells(this, `Alpha-${this.cells.length}`);
         }
 
-        this.scene.launch("game-ui", {
+        this.gameUI = this.scene.launch("game-ui", {
             scene: this,
             cell: this.player
         });
@@ -88,8 +94,13 @@ export class OfflineGame extends Phaser.Scene {
             this.logicTimer -= this.logicFPS;
             const dt = this.logicFPS / 1000;
             this.updateLogic(dt);
+        }        
+
+        if (this.cells.length < this.botsNumberMax) {
+            this.time.delayedCall(5000, () => {
+                if (this.cells.length < this.botsNumberMax) new Cells(this, `Beta-${this.cells.length}`);
+            })
         }
-        
     }
     
     
@@ -112,6 +123,7 @@ export class OfflineGame extends Phaser.Scene {
         this.cells.forEach((cell) => {
             if (cell.X < 1 || cell.X > this.mapWidth || cell.Y < 1 || cell.Y > this.mapHeight) {
                 cell.conteiner.destroy();
+                new Messager(`[b][color=red]${cell.specie}[/color][/b] was annihilated by the [b][color=red]void[/color][/b] (left the map)`, this);
                 return;
             }
             cell.update(dt);

@@ -37,12 +37,18 @@ export class DNAPoints {
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance <= (10 + cell.size - 1)) {
-                cell.points += ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNAHarvesting);
+                const point = ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNAHarvesting);
+                cell.points += point;
+                cell.allPoints += point;
                 
                 if (cell.life < cell.maxLife) {
                     let life = cell.life + (this.points * 0.1) * cell.DNAHarvesting;
                     if (life > cell.maxLife) life = cell.maxLife;
                     cell.life = Math.floor(life);
+                }
+                if (cell.stamina < cell.maxStamina && !cell.running) {
+                    const stamina = cell.stamina + (point/2);
+                    cell.stamina = Phaser.Math.Clamp(stamina, 1, cell.maxStamina);
                 }
                 this.object.destroy();
                 if (this.natural) new DNAPoints(this.scene);

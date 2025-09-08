@@ -3,7 +3,7 @@
 
 import { Cells } from "../../core/cells.js";
 import { keyMapper } from "../../core/key_handler.js";
-import { parseValue } from "../../core/utils.js";
+import { parseValue, rexTag } from "../../core/utils.js";
 import { setEffect, AttributeUpgrade } from "../../core/upgrades.js";
 
 
@@ -140,6 +140,31 @@ export class DeckUI extends Phaser.Scene {
                 wordWrap: { width: 200 }
             }).setOrigin(0.5);
 
+            if (this.player.level <= 3) {
+                // @ts-ignore
+                const instruction = this.add.rexBBCodeText(
+                    0, 
+                    window.innerHeight * 0.4, 
+                    "press [size=18][color=white]1[/color][/size], [size=18][color=white]2[/color][/size] or [size=18][color=white]3[/color][/size] to quickly select the card", {
+                        color: "yellow",
+                        fontSize: 15,
+                        fontFamily: "quicksand_font",
+                        tags: rexTag(),
+                        align: "center",
+                        resolution: 2
+                    }
+                ).setOrigin(0.5);
+
+                this.tweens.add({
+                    targets: instruction,
+                    scale: {to: 1, from: 1.2},
+                    ease: 'Sine.easeInOut',
+                    duration: 700,
+                    yoyo: true,
+                    repeat: -1
+                })
+            }
+
             cardOption.on("pointerover", () => {
                 cardOption.setScale(1);
                 updateIn.setFontSize(18)
@@ -170,7 +195,10 @@ export class DeckUI extends Phaser.Scene {
                 if (!this.player) return;
                 setEffect(this.player, card);
                 this.scene.stop();
-                if (this.mode === "offline") this.scene.resume("offline-scene");
+                if (this.mode === "offline") {
+                    this.scene.resume("game-ui");
+                    this.scene.resume("offline-scene");
+                };
             });
         })
     }

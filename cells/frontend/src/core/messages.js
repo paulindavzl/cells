@@ -1,6 +1,7 @@
 // @ts-check
 
 import { OfflineGame } from "../scenes/offline_game.js";
+import { rexTag } from "./utils.js";
 
 export class Messager {
 
@@ -10,35 +11,26 @@ export class Messager {
     */
     constructor (message, scene, base="yellow") {
         // @ts-ignore
-        const object = scene.add.rexBBCodeText(100, 350 + (10 * scene.killMessages), 
-            message, 
-            {
+        const object = scene.add.rexBBCodeText(100, 350, 
+            message, {
                 fontSize: "10px",
                 fontFamily: "quicksand_font",
                 color: base,
-                tags: {
-                    white: {color: "#f0f0f0ff"},
-                    red: {color: "#d62828ff"},
-                    green: {color:"#14be5bff"},
-                    yellow: {color: "#d4e306ff"}
-                }
+                tags: rexTag()
             }
         ).setScrollFactor(0);
-
-        scene.killMessages ++;
 
         let repeat = 0;
         scene.time.addEvent({
             delay: 20,
             callback: () => {
                 repeat ++
-                object.y -= 0.1;
+                object.y -= 1
 
-                if (repeat > 75) object.alpha -= 0.01;
+                if (repeat > 75) object.alpha -= 0.008;
 
                 if (repeat >= 150) {
                     object.destroy();
-                    scene.killMessages --;
                 }
             },
             callbackScope: scene,
