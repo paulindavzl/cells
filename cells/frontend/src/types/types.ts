@@ -46,3 +46,13 @@ type DeckUICardType = {
     "buffs": UpdateAttributeType, 
     "debuffs"?: UpdateAttributeType
 };
+
+
+type EffectType = {
+    name: ("speed"|"damage"|"stamina"|"defense"|"adrenaline"|"lifeRegeneration"),
+    type: ("buff"|"debuff"),
+    message: string,
+    cause: ("low_stamina"|"adrenaline"|"low_life"),
+    natural: boolean,
+    change?: number
+}

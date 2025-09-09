@@ -187,3 +187,124 @@ export const rexTag = () => {
     
     return tags;
 }
+
+/**
+ * 
+ * @param {Cells} cell
+ * @param {EffectType[]} effects
+ */
+export const setEffectsByStamina = (cell, effects) => {
+    const stamina = cell.stamina * 100 / cell.maxStamina;
+
+    /** @type {EffectType[]} */
+    const newEffects = []
+    if (stamina < 50) {
+        newEffects.push({
+            name: "stamina",
+            type: "debuff",
+            cause: "low_stamina",
+            message: `low stamina (${Math.floor(cell.stamina)} - ${Math.floor(stamina)}%): attribute reduction`,
+            natural: true
+        });
+
+        let dDFSSEReduce = 10;
+
+        if (stamina < 10) {
+            newEffects.push({
+                name: "speed",
+                type: "debuff",
+                message: "reduced speed (-20%)",
+                cause: "low_stamina",
+                natural: true,
+                change: -cell.speed * 0.2
+            })
+
+        } else if (stamina < 30) {
+            newEffects.push({
+                name: "lifeRegeneration",
+                type: "debuff",
+                message: "reduced health regeneration (-50%)",
+                cause: "low_stamina",
+                natural: true,
+                change: -cell.lifeRegeneration * 0.5
+            });
+        } else if (stamina < 40) {
+            dDFSSEReduce = stamina < 30 ? 30 : 25;
+
+            let dDMGSReduce = stamina < 20 ? 20 : 10;
+            /** @type {EffectType} */
+            const debuffDamageStaminaEffect = {
+                name: "damage",
+                type: "debuff",
+                message: `reduced damage (-${dDMGSReduce}%)`,
+                cause: "low_stamina",
+                natural: true,
+                change: -cell.damage * (dDMGSReduce / 100)
+            };
+
+            newEffects.push(debuffDamageStaminaEffect);
+        }
+
+        /** @type {EffectType} */
+        const debuffDefenseStaminaEffect = {
+            name: "defense",
+            type: "debuff",
+            message: `reduce defense (-${dDFSSEReduce}%)`,
+            cause: "low_stamina",
+            natural: true,
+            change: -cell.defense * (dDFSSEReduce / 100)
+        }
+        newEffects.push(debuffDefenseStaminaEffect);
+
+        effects.push(...newEffects);
+    }
+};
+
+
+/**
+ * 
+ * @param {Cells} cell
+ * @param {EffectType[]} effects
+ */
+export const setEffectsByAdrenaline = (cell, effects) => {
+    if (cell.adrenalineOn) {
+        effects.push({
+            name: "lifeRegeneration",
+            type: "buff",
+            message: "adrenaline-enhanced regeneration (+50%)",
+            cause: "adrenaline",
+            natural: true,
+            change: cell.lifeRegeneration * 0.5
+        }, {
+            name: "speed",
+            type: "buff",
+            message: `adrenaline-enhanced speed (+${cell.adrenalineSpeedBuff}%)`,
+            cause: "adrenaline",
+            natural: true,
+            change: cell.speed * cell.adrenalineSpeedBuff / 100
+        }, {
+            name: "damage",
+            type: "buff",
+            message: `adrenaline-enhanced damage (+${cell.adrenalineDamageBuff}%)`,
+            cause: "adrenaline",
+            natural: true,
+            change: cell.speed * cell.adrenalineDamageBuff / 100
+        });
+    }
+}
+
+
+/**
+ * 
+ * @param {Cells} cell
+ * @returns {EffectType[]} 
+ */
+export const parseNaturalEffects = (cell) => {
+    /** @type {EffectType[]} */
+    const effects = [];
+
+    setEffectsByStamina(cell, effects);
+    setEffectsByAdrenaline(cell, effects);
+    
+    return effects;
+}

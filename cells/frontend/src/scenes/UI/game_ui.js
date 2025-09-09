@@ -17,6 +17,7 @@ export class GameUI extends Phaser.Scene {
             pos += 15;
             return pos;
         }
+        this.effects = [];
     }
 
 
@@ -181,7 +182,7 @@ export class GameUI extends Phaser.Scene {
         this.killsText?.setText(`kills: ${this.cell.kills}`);
         this.levelText?.setText(`level: ${this.cell.level}`);
 
-        this.updateRanking()
+        this.updateRanking();
     }
 
 

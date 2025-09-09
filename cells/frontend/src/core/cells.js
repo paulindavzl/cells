@@ -1,8 +1,10 @@
 // @ts-check
+/// <reference path="../types/types.ts" />
+
 
 import { OfflineGame } from "../scenes/offline_game.js";
 import { DNAPoints } from "./dna_points.js";
-import { Bar, randomColor, randomItem, randomNumber } from "./utils.js";
+import { Bar, parseNaturalEffects, randomColor, randomItem, randomNumber } from "./utils.js";
 import { setEffect, AttributeUpgrade } from "./upgrades.js";
 import { Messager } from "./messages.js";
 
@@ -11,16 +13,17 @@ export class Cells {
 
     /** 
      * @param {OfflineGame} scene
+     * @param {string} specie 
      * @param {boolean} isPlayer
     */
     constructor (scene, specie, isPlayer=false) {
         this.scene = scene;
-        this.specie = specie;
         this.isPlayer = isPlayer;
         this.scene.cells.push(this);
         this.playerWatching = false;
-
+        
         if (!isPlayer) specie += `-${scene.cells.length}`;
+        this.specie = specie;
 
         this.X = randomNumber(0, scene.mapWidth);
         this.Y = randomNumber(0, scene.mapHeight);
@@ -61,6 +64,8 @@ export class Cells {
 
         /** @type {null | {"target": Cells | DNAPoints, "type": "hunt" | "escape"}} */
         this.state = null;
+        /** @type {EffectType[]} */
+        this.effects = []
 
         // consumo de estâmina para ações
         this.consumptionForRunning = 2;
@@ -78,7 +83,7 @@ export class Cells {
         this.adrenalineTime = 1;
         this.adrenalineOn = false;
         this.DNAHarvesting = 1;
-        this.lifeRecovery = 0;
+        this.lifeRegeneration = 0;
         this.staminaRecovery = 1;
         this.reduceSpeed = true;
         this.runBuff = 100;
@@ -96,7 +101,7 @@ export class Cells {
             adrenalineDamageBuff: 20,
             adrenalineTime: 1,
             DNAHarvesting: 5,
-            lifeRecovery: 8,
+            lifeRegeneration: 8,
             multiplierMaxValue: 1.5,
             runBuff: 200
         };
@@ -168,6 +173,7 @@ export class Cells {
 
             if (prey) prey.targetObject.visible = true;
             this.lastPrey = prey;
+            this.targetObject.visible = false;
         }
         this.move(dt);
 
@@ -197,7 +203,7 @@ export class Cells {
                     // @ts-ignore
                     (this.isPlayer && !key.isDown) || 
                     this.stamina < this.consumptionForRunning || 
-                    (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells)))
+                    (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells) || (this.stamina < this.maxStamina * 0.15 && [1, 3].includes(randomNumber(1, 3)))))
                 ) {
                     this.speed -= buff;
                     runEvent.destroy();
@@ -267,8 +273,8 @@ export class Cells {
 
     setAngleVariation () {
         if (this.angleVariation !== 0) return;
-        if (randomNumber(0, 1) === 0) return;
-        this.angleVariation = randomNumber(-1.5, 1.5, false);
+        if (randomNumber(1, 5) === 2) return;
+        this.angleVariation = randomNumber(-3, 3, false);
         this.scene.time.addEvent({
             delay: 300,
             callback: () => {
@@ -355,6 +361,7 @@ export class Cells {
             this.lastEpicCard += 1;
             this.points -= this.nextLevel;
             this.level ++;
+            this.consumptionForRunning *= 1.1;
             if (this.reduceSpeed) this.baseSpeed -= (this.baseSpeed * (this.reduceSpeedBy / 100));
             this.size += (this.size * 0.05);
             this.nextLevel = randomNumber(150, 300, false) * this.level;
@@ -371,21 +378,21 @@ export class Cells {
         if (Math.floor(this.life) <= 0) {
             if (!onlyread) {
                 if (this.lastContact?.object.active) {
-                    this.lastContact.kills ++;
-                    if (this.isPlayer || this.playerWatching) {
-                        const follow = (this.lastContact.object.active) ? this.lastContact : this.scene.cells.find(cell => cell.object.active && cell.isAlive(true));
-                        const main = this.scene.cameras.main;
-                        if (follow) {
-                            main.stopFollow();
-                            main.startFollow(follow.conteiner);
-                            follow.playerWatching = true;
-                            follow.nameTextObject.setColor("#2ddc27ff");
-                            follow.allPointsTextObject.setColor("#2ddc27ff");
-                            // @ts-ignore
-                            this.scene.scene.get("game-ui").changeReference(follow, this.isPlayer ? follow.specie : null);
-                        }
+                    this.lastContact.kills ++; 
+                };
+                if (this.isPlayer || this.playerWatching) {
+                    const follow = (this.lastContact?.object.active) ? this.lastContact : this.scene.cells.find(cell => cell != this && cell.object.active && cell.isAlive(true));
+                    const main = this.scene.cameras.main;
+                    if (follow) {
+                        main.stopFollow();
+                        main.startFollow(follow.conteiner);
+                        follow.playerWatching = true;
+                        follow.nameTextObject.setColor("#2ddc27ff");
+                        follow.allPointsTextObject.setColor("#2ddc27ff");
+                        // @ts-ignore
+                        this.scene.scene.get("game-ui").changeReference(follow, this.isPlayer ? follow.specie : null);
                     };
-                }
+                };
                 
                 this.conteiner.destroy();
                 for (let i = 0; i <= this.level * 50; i++) {
@@ -408,29 +415,52 @@ export class Cells {
     getSpeed () {
         let speed = this.speed;
 
-        if (this.stamina < this.maxStamina * 0.1) speed -= speed * 0.2;
+        this.effects.forEach(effect => {
+            if (effect.name !== "speed") return;
 
+            speed += effect.change ?? 0;
+        })
+        
         return speed;
     }
-
-
+    
+    
     getDamage () {
         let damage = this.damage;
-        if (this.stamina < this.maxStamina * 0.2) damage -= damage * 0.2;
-        else if (this.stamina < this.maxStamina * 0.4) damage -= damage * 0.1;
-
+        
+        this.effects.forEach(effect => {
+            if (effect.name !== "damage") return;
+    
+            damage += effect.change ?? 0;
+        })
+        
         return damage;
+    }
+    
+    
+    getDefense () {
+        let defense = this.defense;
+        
+        this.effects.forEach(effect => {
+            if (effect.name !== "defense") return;
+    
+            defense += effect.change ?? 0;
+        })
+
+        return defense;
     }
 
 
-    getDefense () {
-        let defense = this.defense;
+    getlifeRegeneration () {
+        let lifeRegeneration = this.lifeRegeneration;
 
-        if (this.stamina < this.maxStamina * 0.3) defense -= defense * 0.3;
-        else if (this.stamina < this.maxStamina * 0.4) defense -= defense * 0.25;
-        else if (this.stamina < this.maxStamina * 0.6) defense -= defense * 0.1;
+        this.effects.forEach(effect => {
+            if (effect.name !== "lifeRegeneration") return;
 
-        return defense;
+            lifeRegeneration += effect.change ?? 0;
+        })
+
+        return lifeRegeneration;
     }
 
 
@@ -522,16 +552,13 @@ export class Cells {
 
     adrenaline () {
         if (!this.adrenalineOn){
-            this.speed += (this.baseSpeed * (this.adrenalineSpeedBuff/100));
-            this.damage += (this.baseDamage * (this.adrenalineDamageBuff/100));
             this.adrenalineOn = true;
             
-            this.scene.time.addEvent({
+            const event = this.scene.time.addEvent({
                 delay: this.adrenalineTime * 1000,
                 callback: () => {
-                    this.speed = this.baseSpeed;
-                    this.damage = this.baseDamage;
                     this.adrenalineOn = false;
+                    event.destroy();
                 },
                 callbackScope: this.scene,
                 loop: false
@@ -678,8 +705,8 @@ export class Cells {
             if (!cell.conteiner.active) continue;
 
             const dist = Phaser.Math.Distance.Between(this.X, this.Y, cell.X, cell.Y);
-
-            if (dist < minDist && dist < randomNumber(300, 500) && (
+            const visiblity = this.isPlayer ? (window.innerHeight / 2) - 50  : randomNumber(300, 500)
+            if (dist < minDist && dist < visiblity && (
                 cell.level < this.level  || ( cell.level == this.level && cell.points < this.points - (this.level * 50))
             ) && cell !== this.lastHunt) {
                 prey = cell;
@@ -693,6 +720,25 @@ export class Cells {
 
     startBackgroundEvents () {
         const time = this.scene.time;
+
+        // ativa/desativa efeitos
+        time.addEvent({
+            delay: 30/1000,
+            callback: () => {
+                this.effects = this.effects.filter(e => !e.natural); // limpa todos os efeitos naturais
+                const effects = parseNaturalEffects(this);
+
+                effects.forEach(effect => {
+                    if (!this.effects.find(e => 
+                        e.type === effect.type && 
+                        e.cause === effect.cause
+                    )) this.effects.push(effect);
+                });
+                
+            },
+            callbackScope: this.scene,
+            loop: true
+        })
 
         // calcula a velocidada em px da célula
         time.addEvent({
@@ -740,8 +786,9 @@ export class Cells {
 
                 lastDist = dist;
 
-                if (timeHuntControl >= tolerance) {
+                const cancelHunt = () => {
                     this.lastHunt = this.hunting;
+                    // @ts-ignore
                     this.hunting.predators = this.hunting.predators.filter(c => c !== this);
                     this.hunting = null;
                     timeHuntControl = 0;
@@ -755,6 +802,13 @@ export class Cells {
                         callbackScope: this.scene
                     });
                 }
+
+                if (timeHuntControl >= tolerance) {
+                    cancelHunt();
+                } else if (timeHuntControl > 4000 && this.stamina < this.maxStamina * 0.35) {
+                    cancelHunt();
+                    this.lastHunt = null;
+                }
             },
             callbackScope: this.scene,
             loop: true
@@ -765,23 +819,22 @@ export class Cells {
             delay: 1000,
             callback: () => {
                 if (this.life < this.maxLife) {
-                    // recupera vida normalmente caso stamina > 60% máx.
-                    if (this.stamina >= this.maxStamina * 0.6) {
-                        this.life += this.lifeRecovery;
-                        this.stamina -= this.lifeRecovery;
-                    
-                    // recupera a vida em metade da recuperação normal caso stamina > 20% máx.
-                    } else if (this.stamina >= 0.2) {
-                        this.life += this.lifeRecovery / 2;
-                        this.stamina -= this.lifeRecovery; // consome a quantida de stamina normal para recuperar a vida
-                    }
+                    this.effects.push({
+                        name: "lifeRegeneration",
+                        type: "buff",
+                        message: "active regeneration",
+                        cause: "low_life",
+                        natural: true
+                    })
+                    this.life += this.getlifeRegeneration();
+                    this.stamina -= this.lifeRegeneration;
                 }
 
                 const pointsReduction = 0.5 * (this.level / 2);
                 if (this.points > 0) this.points -= pointsReduction;
                 if (this.allPoints > 0) this.allPoints -= pointsReduction;
 
-                if (this.stamina < this.maxStamina && !this.running) this.stamina += this.staminaRecovery;
+                if (this.stamina < this.maxStamina && !this.running) this.stamina += this.staminaRecovery * (this.adrenalineOn ? 2 : 1);
             },
             callbackScope: this.scene,
             loop: true
@@ -797,6 +850,7 @@ export class Cells {
             callbackScope: this.scene,
             loop: true
         })
+
     }
 
 
