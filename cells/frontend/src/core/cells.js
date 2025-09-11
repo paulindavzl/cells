@@ -32,6 +32,7 @@ export class Cells {
         this.speedSecond = 0;
         this.angle = null;
         this.angleVariation = 0;
+        // @ts-ignore
         this.color = this.getUniqueColor()
 
         // controla o ganho de cartas raras/épicas
@@ -69,8 +70,9 @@ export class Cells {
 
         // consumo de estâmina para ações
         this.consumptionForRunning = 2;
+        this.consumptionForRegeneration = 2;
 
-        // controla o tempo em que pode atacar ou ser atacado
+        // controla o tempo em que pode atacar ou ser atacado e corrida
         this.attackOn = true;
         this.fullDefenseOn = false;
         this.attackCooldown = 600;
@@ -84,7 +86,7 @@ export class Cells {
         this.adrenalineOn = false;
         this.DNAHarvesting = 1;
         this.lifeRegeneration = 0;
-        this.staminaRecovery = 1;
+        this.staminaRegeneration = 1;
         this.reduceSpeed = true;
         this.runBuff = 100;
 
@@ -106,6 +108,8 @@ export class Cells {
             runBuff: 200
         };
 
+        this.reference = null;
+
         /** @type {Cells[]} */
         this.predators = [];
         /** @type {null|Cells} */
@@ -114,6 +118,9 @@ export class Cells {
         this.lastHunt = null;
         /** @type {null|Cells} */
         this.lastPrey = null;
+
+        /** @type {CellEventType[]} */
+        this.events = [];
 
         this.object = scene.add.circle(0, 0, this.size, this.color);
         this.nameTextObject = scene.add.text(0, this.size -55, this.specie, {
@@ -149,12 +156,42 @@ export class Cells {
     }
 
 
+    /** @param {CellEventType} event  */
+    addEvent (event) {
+        event.triggerTime = 0;
+        this.events.push(event);
+    }
+
+
+    /** @param {number} time  */
+    executeEvents (time) {
+        const removeEvents = new Set();
+
+        this.events.forEach(event => {
+            // @ts-ignore
+            event.triggerTime += time * 1000;
+            // @ts-ignore
+            if (event.triggerTime >= event.delay) {
+                const callback = event.callback();
+                if (!event.loop || (event.destroy && callback)) {
+                    removeEvents.add(event);
+                    return;
+                };
+                event.triggerTime = 0;
+            };
+        });
+
+        this.events = this.events.filter(event => !removeEvents.has(event));
+    }
+
+
     /**
      * 
      * @param {number} dt 
      */
     update (dt) {
         if (!this.isAlive()) return;
+        this.executeEvents(dt);
 
         this.fighting(dt)
         this.updatePosition();
@@ -164,8 +201,9 @@ export class Cells {
 
         if (!this.isPlayer) {
             if (this.escape()) "";
+            else if (this.findDNA(false)) "";
             else if (this.hunt(prey)) "";
-            else this.findDNA();
+            else this.findDNA(true);
         }
         if (this.isPlayer || this.playerWatching) {
             if (!this.lastPrey) this.lastPrey = prey;
@@ -179,41 +217,57 @@ export class Cells {
 
         const gameUI = this.scene.scene.get("game-ui");
         // @ts-ignore
-        if (this.isPlayer && gameUI.runText.active && this.scene.getKeys()?.SPACE.isDown) gameUI.runText.destroy();
+        if (gameUI.runText.active && this.playerWatching || (this.isPlayer && this.scene.getKeys()?.SPACE.isDown)) gameUI.runText.destroy();
 
         this.allPointsTextObject.text = `(${Math.floor(this.allPoints)})`;
+
+        if (this.isPlayer || this.playerWatching) {
+            this.nameTextObject.setColor("#2ddc27ff");
+            this.allPointsTextObject.setColor("#2ddc27ff");
+        } else {
+            this.nameTextObject.setColor("#ff1d1dff");
+            this.allPointsTextObject.setColor("#ff1d1dff");
+        }
     }
 
 
+    // @ts-ignore
     run (key) {
         if (
             this.running || 
             this.stamina < (this.maxStamina * 0.3) ||
-            (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells)))
+            (!this.isPlayer && this.reference === "dna")
         ) return;
 
-        const buff = this.runBuff;
-        this.speed += buff;
         this.running = true;
 
-        const runEvent = this.scene.time.addEvent({
+        this.effects.push({
+            name: "speed",
+            type: "buff",
+            message: `increased speed (+${this.runBuff})`,
+            cause: "running",
+            natural: false,
+            change: this.runBuff
+        })
+
+        this.addEvent({
             delay: 20,
             callback: () => {
                 if (
                     // @ts-ignore
                     (this.isPlayer && !key.isDown) || 
                     this.stamina < this.consumptionForRunning || 
-                    (!this.isPlayer && (!this.state || !(this.state?.target instanceof Cells) || (this.stamina < this.maxStamina * 0.15 && [1, 3].includes(randomNumber(1, 3)))))
+                    (!this.isPlayer && (this.reference !== "cell" || (this.stamina < this.maxStamina * 0.25 && [1, 3].includes(randomNumber(1, 3)))))
                 ) {
-                    this.speed -= buff;
-                    runEvent.destroy();
+                    this.effects = this.effects.filter(effect => effect.name !== "speed" || (effect.cause !== "running"));
                     this.running = false;
+                    return true;
                 } else {
                     this.stamina -= this.consumptionForRunning;
                 }
             },
-            callbackScope: this.scene,
-            loop: true
+            loop: true,
+            destroy: true
         });
     }
 
@@ -238,7 +292,10 @@ export class Cells {
         } else {
             if (
                 this.stamina >= (this.maxStamina * randomNumber(0.3, 0.5, false)) &&
-                (this.state?.type !== "hunt" || this.life >= (this.maxLife * 0.5))
+                (this.reference === "cell" && (this.life > this.maxLife * 0.3) && ((
+                    // @ts-ignore
+                    this.state?.type === "hunt" && (this.state.target.isPlayer || this.state.target.playerWatching) && randomNumber(0, 3, true) !== 2
+                )) || randomNumber(0, 4, true) === 2)
             ) this.run(keys?.SPACE);
 
             let angle = this.angle;
@@ -275,12 +332,11 @@ export class Cells {
         if (this.angleVariation !== 0) return;
         if (randomNumber(1, 5) === 2) return;
         this.angleVariation = randomNumber(-3, 3, false);
-        this.scene.time.addEvent({
+        this.addEvent({
             delay: 300,
             callback: () => {
                 this.angleVariation = 0;
             },
-            callbackScope: this.scene,
             loop: false
         });
     }
@@ -293,12 +349,11 @@ export class Cells {
      */
     setState (target, type) {
         this.state = {"target": target, "type": type};
-        this.scene.time.addEvent({
+        this.addEvent({
             delay: randomNumber(500, 1000, false),
             callback: () => {
                 this.state = null;
             },
-            callbackScope: this.scene,
             loop: false
         });
     }
@@ -312,7 +367,7 @@ export class Cells {
 
 
     updateMaxValue () {
-        for (let key in this.maxPerFiveLevel) {
+        for (let key in this.maxPerFiveLevel) { // @ts-ignore
             if (key !== "multiplierMaxValue") this.maxPerFiveLevel[key] *= this.multiplierMaxValue;
         };
     }
@@ -324,15 +379,18 @@ export class Cells {
         this.conteiner.add(star);
 
         let repeat = 0;
-        this.scene.time.addEvent({
+        this.addEvent({
             delay: 5,
             callback: () => {
                 repeat ++
                 if (repeat <= 20) star.y -= 1;
-                if (repeat >= 30) star.destroy();
+                if (repeat >= 30) {
+                    star.destroy(); 
+                    return true;
+                };
             },
-            callbackScope: this.scene,
-            repeat: 30
+            loop: true,
+            destroy: true
         })
     }
 
@@ -344,7 +402,7 @@ export class Cells {
             this.scene.scene.pause();
             this.scene.scene.launch("deck-ui", {
                 player: this,
-                mode: "offline",
+                mode: this.scene.MODE,
                 cards: cards
             })
         } else {
@@ -362,6 +420,7 @@ export class Cells {
             this.points -= this.nextLevel;
             this.level ++;
             this.consumptionForRunning *= 1.1;
+            this.consumptionForRegeneration *= 1.1;
             if (this.reduceSpeed) this.baseSpeed -= (this.baseSpeed * (this.reduceSpeedBy / 100));
             this.size += (this.size * 0.05);
             this.nextLevel = randomNumber(150, 300, false) * this.level;
@@ -381,17 +440,8 @@ export class Cells {
                     this.lastContact.kills ++; 
                 };
                 if (this.isPlayer || this.playerWatching) {
-                    const follow = (this.lastContact?.object.active) ? this.lastContact : this.scene.cells.find(cell => cell != this && cell.object.active && cell.isAlive(true));
-                    const main = this.scene.cameras.main;
-                    if (follow) {
-                        main.stopFollow();
-                        main.startFollow(follow.conteiner);
-                        follow.playerWatching = true;
-                        follow.nameTextObject.setColor("#2ddc27ff");
-                        follow.allPointsTextObject.setColor("#2ddc27ff");
-                        // @ts-ignore
-                        this.scene.scene.get("game-ui").changeReference(follow, this.isPlayer ? follow.specie : null);
-                    };
+                    // @ts-ignore
+                    this.changeCamera(this.lastContact);
                 };
                 
                 this.conteiner.destroy();
@@ -412,12 +462,29 @@ export class Cells {
     }
 
 
+    /** @param {Cells} target  */
+    changeCamera (target) {
+        if (!target || !target.object.active) {
+            // @ts-ignore
+            target = this.scene.cells.find(cell => cell != this && cell.object.active && cell.isAlive(true));
+        } 
+        const main = this.scene.cameras.main;
+
+        main.stopFollow();
+        main.startFollow(target.conteiner);
+
+        target.playerWatching = true;
+
+        // @ts-ignore
+        this.scene.scene.get("game-ui").changeReference(target, this.isPlayer ? target.specie : null);
+    }
+
+
     getSpeed () {
         let speed = this.speed;
 
         this.effects.forEach(effect => {
             if (effect.name !== "speed") return;
-
             speed += effect.change ?? 0;
         })
         
@@ -464,6 +531,7 @@ export class Cells {
     }
 
 
+    // @ts-ignore
     fighting (dt) {
         let fighting = false;
 
@@ -478,15 +546,21 @@ export class Cells {
             const weakerDamage = weaker.getDamage();
             const weakerDefense = weaker.getDefense();
 
+            fighting = true;
             weaker.life -= Phaser.Math.Clamp((strongerDamage * (full ? 1 : 1/3) - (strongerDamage * (weakerDefense / 100))), stronger.level, weaker.maxLife);
             stronger.life -= Phaser.Math.Clamp(((weakerDamage * (full ? 1/2 : 1/3)) - (weakerDamage * (strongerDefense / 100))), weaker.level, stronger.maxLife);    
-            fighting = true;
+
+            if (!full) stronger.adrenaline();
             weaker.adrenaline();
-            stronger.lastContactType = full ? "attack" : "defense";       
-            stronger.statusCooldown(full ? "attack" : "defense");
-            weaker.statusCooldown(!full ? "attack" : "defense");
-            weaker.lastContactType = !full ? "attack" : "defense";
-            if (weaker === stronger.hunting) stronger.successHunt = true;
+
+            if (full) {
+                stronger.statusCooldown("attack");
+                weaker.statusCooldown("defense");
+            }     
+            stronger.lastContactType = !full ? "defense" : "attack";  
+            weaker.lastContactType = full ? "defense": "attack";
+
+            if (weaker === stronger.hunting && !full) stronger.successHunt = true;
 
             stronger.lastContact = weaker;
             weaker.lastContact = stronger;
@@ -519,17 +593,17 @@ export class Cells {
     }
 
 
+    // @ts-ignore
     statusCooldown (type) {
         this.attackOn = false;
         this.fullDefenseOn = true;
 
         if (type === "attack") {
-            this.scene.time.addEvent({
+            this.addEvent({
                 delay: this.attackCooldown,
                 callback: () => {
                     this.attackOn = true;
                 },
-                callbackScope: this.scene,
                 loop: false
             });
         }
@@ -537,13 +611,12 @@ export class Cells {
             const circle = this.scene.add.image(0, 0, "defense_circle")
                 .setScale(0.9);
             this.conteiner.add(circle);
-            this.scene.time.addEvent({
+            this.addEvent({
                 delay: this.fullDefenseCooldown,
                 callback: () => {
                     this.fullDefenseOn = false;
                     circle.destroy();
                 },
-                callbackScope: this.scene,
                 loop: false
             });
         }
@@ -554,13 +627,11 @@ export class Cells {
         if (!this.adrenalineOn){
             this.adrenalineOn = true;
             
-            const event = this.scene.time.addEvent({
+            this.addEvent({
                 delay: this.adrenalineTime * 1000,
                 callback: () => {
                     this.adrenalineOn = false;
-                    event.destroy();
                 },
-                callbackScope: this.scene,
                 loop: false
             });
         }
@@ -568,9 +639,10 @@ export class Cells {
 
 
     /**
+     * @param {boolean} natural 
      * @returns {boolean} 
     */
-    findDNA () {
+    findDNA (natural) {
         if (this.isPlayer) return false;
 
         let nearest = null;
@@ -589,22 +661,26 @@ export class Cells {
             };
 
             if (!nearest) {
-                nearest = DNAPoints[0];
-                let minDist = Phaser.Math.Distance.Between(this.X, this.Y, nearest.X, nearest.Y);
+                nearest = null;
+                let minDist = natural ? Infinity : 400;
     
                 for (const dna of DNAPoints) {
-                    if (!dna.object.active) continue;
+                    if (!dna.object.active || dna.invincibility) continue;
+                    if (natural && !dna.natural) continue;
+                    if (!natural && dna.natural) continue;
                     const dist = Phaser.Math.Distance.Between(this.X, this.Y, dna.X, dna.Y);
                     if (dist < minDist) {
                         nearest = dna;
                         minDist = dist;
                     }
                 }
-                this.setState(nearest, "hunt");
             }
-
-            this.angle = Math.atan2(nearest.Y - this.Y, nearest.X - this.X);
-            return true;
+            if (nearest) {
+                this.setState(nearest, "hunt");
+                this.angle = Math.atan2(nearest.Y - this.Y, nearest.X - this.X);
+                this.reference = "dna";
+                return true;
+            }
         }
         return false;
     }
@@ -656,6 +732,7 @@ export class Cells {
             if (dx !== 0 || dy !== 0) {
                 this.angle = Math.atan2(dy, dx);
             }
+            this.reference = "cell";
             return true
         }
         return false;
@@ -691,6 +768,7 @@ export class Cells {
             if (dx !== 0 || dy !== 0) {
                 this.angle = Math.atan2(dy, dx);
             }
+            this.reference = "cell";
             return true;
         }
         return false;
@@ -719,10 +797,8 @@ export class Cells {
 
 
     startBackgroundEvents () {
-        const time = this.scene.time;
-
         // ativa/desativa efeitos
-        time.addEvent({
+        this.addEvent({
             delay: 30/1000,
             callback: () => {
                 this.effects = this.effects.filter(e => !e.natural); // limpa todos os efeitos naturais
@@ -730,18 +806,18 @@ export class Cells {
 
                 effects.forEach(effect => {
                     if (!this.effects.find(e => 
+                        e.name === effect.name &&
                         e.type === effect.type && 
                         e.cause === effect.cause
                     )) this.effects.push(effect);
                 });
                 
             },
-            callbackScope: this.scene,
             loop: true
         })
 
         // calcula a velocidada em px da célula
-        time.addEvent({
+        this.addEvent({
             delay: 1000,
             callback: () => {
                 if (this.isPlayer || this.playerWatching) {
@@ -756,7 +832,6 @@ export class Cells {
                     this.speedSecond = Math.floor(distance);
                 }
             },
-            callbackScope: this.scene,
             loop: true
         });
 
@@ -764,7 +839,7 @@ export class Cells {
         let timeHuntControl = 0;
         let tolerance = randomNumber(3000, 6000);
         let lastDist = 0;
-        time.addEvent({
+        this.addEvent({
             delay: 200,
             callback: () => {
                 if (!this.hunting) {
@@ -794,12 +869,12 @@ export class Cells {
                     timeHuntControl = 0;
                     tolerance = randomNumber(3000, 6000);
 
-                    this.scene.time.addEvent({
+                    this.addEvent({
                         delay: randomNumber(3000, 6000),
                         callback: () => {
                             this.lastHunt = null;
                         },
-                        callbackScope: this.scene
+                        loop: false
                     });
                 }
 
@@ -810,52 +885,73 @@ export class Cells {
                     this.lastHunt = null;
                 }
             },
-            callbackScope: this.scene,
             loop: true
         })
 
         // recupera a vida. recupera estâmina e diminui os pontos
-        time.addEvent({
+        this.addEvent({
             delay: 1000,
             callback: () => {
-                if (this.life < this.maxLife) {
-                    this.effects.push({
+                const lifeRegen = this.getlifeRegeneration();
+                if (this.life < this.maxLife && lifeRegen > 0) {
+                    /** @type {EffectType} */
+                    const effect = {
                         name: "lifeRegeneration",
                         type: "buff",
-                        message: "active regeneration",
+                        message: `active regeneration (+${lifeRegen.toFixed(2)}/s)`,
                         cause: "low_life",
-                        natural: true
-                    })
-                    this.life += this.getlifeRegeneration();
-                    this.stamina -= this.lifeRegeneration;
+                        natural: false
+                    };
+
+                    if (!this.effects.find(e => 
+                        e.name === effect.name &&
+                        e.type === effect.type && 
+                        e.cause === effect.cause
+                    )) {
+                        this.effects.push(effect);
+                        this.addEvent({
+                            delay: 20,
+                            callback: () => {
+                                if (this.life >= this.maxLife) {
+                                    this.effects = this.effects.filter(e => e !== effect)
+                                    return true;
+                                }
+                            },
+                            loop: true,
+                            destroy: true
+                        });
+                    };
+
+                    this.life = Phaser.Math.Clamp(this.life + lifeRegen, this.life, this.maxLife);
+                    this.stamina -= this.consumptionForRegeneration;
                 }
 
                 const pointsReduction = 0.5 * (this.level / 2);
                 if (this.points > 0) this.points -= pointsReduction;
                 if (this.allPoints > 0) this.allPoints -= pointsReduction;
 
-                if (this.stamina < this.maxStamina && !this.running) this.stamina += this.staminaRecovery * (this.adrenalineOn ? 2 : 1);
+                if (this.stamina < this.maxStamina && !this.running) this.stamina += this.staminaRegeneration * (this.adrenalineOn ? 2 : 1);
             },
-            callbackScope: this.scene,
             loop: true
         })
 
         // adiciona um sinal de alerta nas células que estão te caçando
-        time.addEvent({
+        this.addEvent({
             delay: 50,
             callback: () => {
                 if (this.hunting && (this.hunting.isPlayer || this.hunting.playerWatching)) this.alertObject.visible = true;
                 else this.alertObject.visible = false;
             },
-            callbackScope: this.scene,
             loop: true
         })
 
     }
 
 
+    // @ts-ignore
     getUniqueColor () {
         while (true) {
+            // @ts-ignore
             const colorsUnavailable = this.scene.cells.map(cell => cell.color);
             let color = randomColor();
 

@@ -40,7 +40,7 @@ export class AttributeUpgrade {
         const buffs = [
             // rarity 7-10 -> common | 3-6 -> rare | 1-2 -> epic
             {"id": "0", "updateIn": "life", "attribute": "maxLife", "text": "+<VALUE> maximum health", "type": ["absolute", "percent"], "absolute": [1, 10], "percent": [1, 10], "update": "life", "minLevel": 1, "rarity": 10, "rarityName": "common", "increment": "points"},
-            {"id": "1", "updateIn": "life", "attribute": "lifeRegeneration", "text": "+<VALUE> health recovered per second", "type": ["absolute"], "absolute": [0.1, 2], "minLevel": 1, "rarity": 10, "rarityName": "common", "increment": "points"},
+            {"id": "1", "updateIn": "life", "attribute": "lifeRegeneration", "text": "+<VALUE> health recovered per second", "type": ["absolute"], "absolute": [0.5, 3], "minLevel": 1, "rarity": 10, "rarityName": "common", "increment": "points"},
             {"id": "2", "updateIn": "speed", "attribute": "baseSpeed", "text": "+<VALUE> movement speed", "type": ["absolute", "percent"], "absolute": [10, 30], "percent": [1, 3], "update": "speed", "minLevel": 1, "rarity": 9, "rarityName": "common", "increment": "points"},
             {"id": "3", "updateIn": "adrenaline", "attribute": "adrenalineSpeedBuff", "text": "+<VALUE> speed increase when attacked", "type": ["percent"], "percent": [0.5, 3], "minLevel": 1, "rarity": 9, "rarityName": "common", "increment": "points"},
             {"id": "4", "updateIn": "adrenaline", "attribute": "adrenalineDamageBuff", "text": "+<VALUE> damage increase when attacked", "type": ["percent"], "percent": [0.3, 5], "minLevel": 1, "rarity": 8, "rarityName": "common", "increment": "points"},

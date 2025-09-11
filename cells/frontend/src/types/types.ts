@@ -48,11 +48,35 @@ type DeckUICardType = {
 };
 
 
+type EffectsNames = "speed"|"damage"|"stamina"|"defense"|"adrenaline"|"lifeRegeneration";
+
+
 type EffectType = {
-    name: ("speed"|"damage"|"stamina"|"defense"|"adrenaline"|"lifeRegeneration"),
+    name: (EffectsNames),
     type: ("buff"|"debuff"),
     message: string,
-    cause: ("low_stamina"|"adrenaline"|"low_life"),
+    cause: ("low_stamina"|"adrenaline"|"low_life"|"running"),
     natural: boolean,
     change?: number
-}
+};
+
+
+type EffectIconsType = Record<EffectsNames, {
+    buff?: {
+        text: string,
+        object: Phaser.GameObjects.Image
+    },
+    debuff?: {
+        text: string,
+        object: Phaser.GameObjects.Image
+    }
+}>;
+
+
+type CellEventType = {
+    callback: Function,
+    delay: number,
+    loop: boolean,
+    triggerTime?: number,
+    destroy?: boolean
+};

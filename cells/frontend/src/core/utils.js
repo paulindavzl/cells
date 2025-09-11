@@ -3,6 +3,7 @@
 
 
 import { OfflineGame } from "../scenes/offline_game.js";
+import { GameUI } from "../scenes/UI/game_ui.js";
 import { Cells } from "./cells.js";
 
 
@@ -29,7 +30,7 @@ export const randomColor = () => {
 export class Bar {
 
     /**
-     * @param {OfflineGame} scene 
+     * @param {OfflineGame|GameUI} scene 
      * @param {number} x
      * @param {number} y
      * @param {number} currentValue 
@@ -40,15 +41,15 @@ export class Bar {
      * @param { null | {"r": number, "g": number, "b": number} } [color2=null]
      * @param {null | number} [offSetY=null] 
      */
-    constructor (scene, x, y, currentValue, maxValue, backgroudColor, interpolate, color1, color2=null, offSetY=null) {
+    constructor (scene, x, y, currentValue, maxValue, backgroudColor, interpolate, color1, color2=null, offSetY=null, width=window.innerWidth * 0.088, height = 10) {
         this.scene = scene;
 
         this.X = x;
         this.Y = y;
         this.offSetY = offSetY;
 
-        this.width = 100;
-        this.height = 10;
+        this.width = width;
+        this.height = height;
 
         this.currentValue = Phaser.Math.Clamp(currentValue, 0, maxValue);
         this.displayValue = Phaser.Math.Clamp(currentValue, 0, maxValue);
@@ -60,6 +61,7 @@ export class Bar {
         this.color1 = color1;
         this.color2 = color2;
 
+        this.hitArea = new Phaser.Geom.Rectangle(this.X, this.Y, this.width, this.height);
         this.object = scene.add.graphics();
         this.draw();
     }
@@ -96,9 +98,17 @@ export class Bar {
             this.object.fillStyle(hexColor);
             this.object.fillRoundedRect(this.X, this.Y, this.width * valuePercent, this.height, 3);
         }
+
+        this.hitArea.setPosition(this.X, this.Y);
+
+        this.object.setInteractive(
+            this.hitArea,
+            Phaser.Geom.Rectangle.Contains
+        );
     }
 
 
+    // @ts-ignore
     updateValue (value, maxValue) {
         this.currentValue = Phaser.Math.Clamp(value, 0, this.maxValue);
         this.maxValue = maxValue;
@@ -108,13 +118,6 @@ export class Bar {
             duration: 200,
             onUpdate: () => this.draw()
         });
-    }
-
-
-    /** @param {number} value  */
-    setScrollFactor (value) {
-        this.object.setScrollFactor(value);
-        return this;
     }
 }
 
@@ -147,13 +150,14 @@ export const parseValue = (info, cell, set=false, debuff=false) => {
     // @ts-ignore
     if (typeof info[type] === "object") info[type] = info[type][0];
 
+    // @ts-ignore
     let baseValue = cell[attribute];
     let change = 0;
 
     if (type === "absolute") {
         change = info.absolute ?? 0;
     }
-    else if (type === "boolean") {
+    else if (type === "boolean") { // @ts-ignore
         if (set) cell[attribute] = info.boolean;
         return `set to ${info.boolean}`
     }
@@ -166,8 +170,8 @@ export const parseValue = (info, cell, set=false, debuff=false) => {
 
     const newValue = baseValue + change;
 
-    if (set) {
-        cell[attribute] = newValue;
+    if (set) {  // @ts-ignore
+        cell[attribute] = newValue; // @ts-ignore
         if (update) cell[update] += change;
     }
 
@@ -203,23 +207,23 @@ export const setEffectsByStamina = (cell, effects) => {
             name: "stamina",
             type: "debuff",
             cause: "low_stamina",
-            message: `low stamina (${Math.floor(cell.stamina)} - ${Math.floor(stamina)}%): attribute reduction`,
+            message: `low stamina (${Math.floor(stamina)}%): attribute reduction`,
             natural: true
         });
 
         let dDFSSEReduce = 10;
 
-        if (stamina < 10) {
+        if (stamina < 20) {
             newEffects.push({
                 name: "speed",
                 type: "debuff",
-                message: "reduced speed (-20%)",
+                message: "reduced speed (-40%)",
                 cause: "low_stamina",
                 natural: true,
-                change: -cell.speed * 0.2
+                change: -cell.baseSpeed * 0.4
             })
 
-        } else if (stamina < 30) {
+        } if (stamina < 30) {
             newEffects.push({
                 name: "lifeRegeneration",
                 type: "debuff",
@@ -228,7 +232,7 @@ export const setEffectsByStamina = (cell, effects) => {
                 natural: true,
                 change: -cell.lifeRegeneration * 0.5
             });
-        } else if (stamina < 40) {
+        } if (stamina < 40) {
             dDFSSEReduce = stamina < 30 ? 30 : 25;
 
             let dDMGSReduce = stamina < 20 ? 20 : 10;
@@ -236,7 +240,7 @@ export const setEffectsByStamina = (cell, effects) => {
             const debuffDamageStaminaEffect = {
                 name: "damage",
                 type: "debuff",
-                message: `reduced damage (-${dDMGSReduce}%)`,
+                message: `reduced damage (-${dDMGSReduce.toFixed(2)}%)`,
                 cause: "low_stamina",
                 natural: true,
                 change: -cell.damage * (dDMGSReduce / 100)
@@ -249,7 +253,7 @@ export const setEffectsByStamina = (cell, effects) => {
         const debuffDefenseStaminaEffect = {
             name: "defense",
             type: "debuff",
-            message: `reduce defense (-${dDFSSEReduce}%)`,
+            message: `reduce defense (-${dDFSSEReduce.toFixed(2)}%)`,
             cause: "low_stamina",
             natural: true,
             change: -cell.defense * (dDFSSEReduce / 100)
@@ -257,6 +261,7 @@ export const setEffectsByStamina = (cell, effects) => {
         newEffects.push(debuffDefenseStaminaEffect);
 
         effects.push(...newEffects);
+
     }
 };
 
@@ -269,27 +274,37 @@ export const setEffectsByStamina = (cell, effects) => {
 export const setEffectsByAdrenaline = (cell, effects) => {
     if (cell.adrenalineOn) {
         effects.push({
-            name: "lifeRegeneration",
+            name: "adrenaline",
             type: "buff",
-            message: "adrenaline-enhanced regeneration (+50%)",
+            message: "adrenaline activated: increase in attributes",
             cause: "adrenaline",
-            natural: true,
-            change: cell.lifeRegeneration * 0.5
-        }, {
+            natural: true
+        },{
             name: "speed",
             type: "buff",
-            message: `adrenaline-enhanced speed (+${cell.adrenalineSpeedBuff}%)`,
+            message: `adrenaline-enhanced speed (+${cell.adrenalineSpeedBuff.toFixed(2)}%)`,
             cause: "adrenaline",
             natural: true,
             change: cell.speed * cell.adrenalineSpeedBuff / 100
         }, {
             name: "damage",
             type: "buff",
-            message: `adrenaline-enhanced damage (+${cell.adrenalineDamageBuff}%)`,
+            message: `adrenaline-enhanced damage (+${cell.adrenalineDamageBuff.toFixed(2)}%)`,
             cause: "adrenaline",
             natural: true,
             change: cell.speed * cell.adrenalineDamageBuff / 100
         });
+
+        if (cell.lifeRegeneration > 0 && cell.life < cell.maxLife) {
+            effects.push({
+                name: "lifeRegeneration",
+                type: "buff",
+                message: "adrenaline-enhanced regeneration (+50%)",
+                cause: "adrenaline",
+                natural: true,
+                change: cell.lifeRegeneration * 0.5
+            });
+        }
     }
 }
 

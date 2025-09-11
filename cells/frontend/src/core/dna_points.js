@@ -23,36 +23,49 @@ export class DNAPoints {
         this.object.scale = 0.03 * (this.pointerBooster - 1);
         this.object.rotation = randomNumber(0, 360);
         this.object.play("dna_sprite");
-        natural ? scene.DNAPoints.push(this) : scene.DNADeadPoints.push(this);
+        scene.DNAPoints.push(this)
+
         this.scene = scene;
         this.points = points;
         this.natural = natural;
+        this.invincibility = natural;
+
+        this.scene.time.addEvent({
+            delay: 200,
+            callback: () => this.invincibility = false,
+            callbackScope: this.scene,
+            loop: false
+        });
+
     }
     
     
     update () {
-        this.scene.cells.forEach(cell => {
-            const dx = this.X - cell.X;
-            const dy = this.Y - cell.Y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance <= (10 + cell.size - 1)) {
-                const point = ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNAHarvesting);
-                cell.points += point;
-                cell.allPoints += point;
-                
-                if (cell.life < cell.maxLife) {
-                    let life = cell.life + (this.points * 0.1) * cell.DNAHarvesting;
-                    if (life > cell.maxLife) life = cell.maxLife;
-                    cell.life = Math.floor(life);
+        if (!this.invincibility) {
+            this.scene.cells.forEach(cell => {
+                const dx = this.X - cell.X;
+                const dy = this.Y - cell.Y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+    
+                if (distance <= (10 + cell.size - 1)) {
+                    const point = ((this.points ?? 1) * (this.pointerBooster ?? 1) * cell.DNAHarvesting);
+                    cell.points += point;
+                    cell.allPoints += point;
+                    
+                    if (cell.life < cell.maxLife) {
+                        let life = cell.life + (this.points * 0.1) * cell.DNAHarvesting;
+                        if (life > cell.maxLife) life = cell.maxLife;
+                        cell.life = Math.floor(life);
+                    }
+                    if (cell.stamina < cell.maxStamina && !cell.running) {
+                        const stamina = cell.stamina + (point/2);
+                        cell.stamina = Phaser.Math.Clamp(stamina, 1, cell.maxStamina);
+                    }
+                    this.object.destroy();
+                    
+                    if (this.natural) new DNAPoints(this.scene);
                 }
-                if (cell.stamina < cell.maxStamina && !cell.running) {
-                    const stamina = cell.stamina + (point/2);
-                    cell.stamina = Phaser.Math.Clamp(stamina, 1, cell.maxStamina);
-                }
-                this.object.destroy();
-                if (this.natural) new DNAPoints(this.scene);
-            }
-        })
+            })
+        }
     }
 }

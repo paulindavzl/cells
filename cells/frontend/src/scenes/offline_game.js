@@ -25,15 +25,15 @@ export class OfflineGame extends Phaser.Scene {
         
         this.keys = keyMapper(this);
 
-        this.botsNumberMax = 20;
-        this.botsCreated = 0;
-        this.mapWidth = 2000;
-        
-        this.mapHeight = 2000;
+        this.botsNumberMax = 0;
         this.maxDNAPoints = 1000;
+        
+        this.mapWidth = 2000;
+        this.mapHeight = 2000;
         
         this.logicTimer = 0;
         this.logicFPS = 1000 / 30;
+        this.MODE = "offline";
     }
 
 
@@ -87,6 +87,7 @@ export class OfflineGame extends Phaser.Scene {
     }
 
 
+    // @ts-ignore
     update (time, delta) {
         this.logicTimer += delta;
         
@@ -104,6 +105,7 @@ export class OfflineGame extends Phaser.Scene {
     }
     
     
+    // @ts-ignore
     updateLogic (dt) {
         this.DNAPoints.forEach(dna => {
             if (dna.X < 1 || dna.X > this.mapWidth || dna.Y < 1 || dna.Y > this.mapHeight) {
